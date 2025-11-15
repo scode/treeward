@@ -1,0 +1,21 @@
+[package]
+name = "treeward"
+version = "0.1.0"
+edition = "2024"
+authors = ["Peter Schuller <peter.schuller@infidyne.com>"]
+description = "A command line tool for checksumming and verifying trees of files"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourusername/treeward"
+
+[dependencies]
+sha2 = "0.10"
+clap = { version = "4.5", features = ["derive"] }
+toml = "0.8"
+base64 = "0.22"
+thiserror = "1.0"
+anyhow = "1.0"
+
+[dev-dependencies]
+tempfile = "3.13"
+assert_cmd = "2.0"
+predicates = "3.1"
