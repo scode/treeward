@@ -97,16 +97,18 @@ pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, W
         }
     }
 
-    // TODO: support args to control policy
-    let status = compute_status(&root, ChecksumPolicy::WhenPossiblyModified)?;
+    if let Some(expected_fingerprint) = &options.fingerprint {
+        // TODO: We should actually verify the fingerprint after having
+        // generated the ward files, otherwise we are subject to concurrent
+        // modifications racing.
+        let status = compute_status(&root, ChecksumPolicy::WhenPossiblyModified)?;
 
-    if let Some(expected_fingerprint) = &options.fingerprint
-        && &status.fingerprint != expected_fingerprint
-    {
-        return Err(WardError::FingerprintMismatch {
-            expected: expected_fingerprint.clone(),
-            actual: status.fingerprint.clone(),
-        });
+        if &status.fingerprint != expected_fingerprint {
+            return Err(WardError::FingerprintMismatch {
+                expected: expected_fingerprint.clone(),
+                actual: status.fingerprint.clone(),
+            });
+        }
     }
 
     let mut files_warded = 0;

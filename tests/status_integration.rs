@@ -41,9 +41,10 @@ fn status_shows_added_files_and_fingerprint() {
         .arg("status")
         .arg(temp.path())
         .assert()
-        .success()
+        .failure()
         .stdout(predicate::str::contains("A new.txt"))
-        .stdout(predicate::str::contains("treeward ward --fingerprint"));
+        .stdout(predicate::str::contains("treeward ward --fingerprint"))
+        .stderr(predicate::str::contains("Ward is not consistent"));
 }
 
 #[test]
@@ -66,6 +67,56 @@ fn status_verify_reports_modified_files() {
         .arg(temp.path())
         .arg("--verify")
         .assert()
-        .success()
-        .stdout(predicate::str::contains("M file.txt"));
+        .failure()
+        .stdout(predicate::str::contains("M file.txt"))
+        .stderr(predicate::str::contains("Ward is not consistent"));
+}
+
+#[test]
+fn status_default_uses_metadata_only_policy() {
+    let temp = TempDir::new().unwrap();
+    let file_path = temp.path().join("file.txt");
+    fs::write(&file_path, "hello").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("ward")
+        .arg(temp.path())
+        .arg("--init")
+        .assert()
+        .success();
+
+    fs::write(&file_path, "changed").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("status")
+        .arg(temp.path())
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("M? file.txt"))
+        .stderr(predicate::str::contains("Ward is not consistent"));
+}
+
+#[test]
+fn status_always_verify_reports_modified_files() {
+    let temp = TempDir::new().unwrap();
+    let file_path = temp.path().join("file.txt");
+    fs::write(&file_path, "hello").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("ward")
+        .arg(temp.path())
+        .arg("--init")
+        .assert()
+        .success();
+
+    fs::write(&file_path, "changed").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("status")
+        .arg(temp.path())
+        .arg("--always-verify")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("M file.txt"))
+        .stderr(predicate::str::contains("Ward is not consistent"));
 }
