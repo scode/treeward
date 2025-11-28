@@ -23,7 +23,9 @@ pub enum WardEntry {
     #[serde(rename = "file")]
     File {
         sha256: String,
-        mtime: u64,
+        /// Modification time in nanoseconds since Unix epoch.
+        /// Modern filesystems (ext4, APFS, etc.) support nanosecond precision.
+        mtime_nanos: u64,
         size: u64,
     },
     #[serde(rename = "dir")]
@@ -59,6 +61,16 @@ pub struct WardFile {
 #[allow(dead_code)]
 impl WardFile {
     const SUPPORTED_VERSION: u32 = 1;
+
+    /// Create a new WardFile with the current supported version
+    pub fn new(entries: BTreeMap<String, WardEntry>) -> Self {
+        WardFile {
+            metadata: Metadata {
+                version: Self::SUPPORTED_VERSION,
+            },
+            entries,
+        }
+    }
 
     /// Parse a TOML string into a WardFile structure
     pub fn from_toml(content: &str) -> Result<Self, WardFileError> {
@@ -126,7 +138,7 @@ version = 1
 [entries."file1.txt"]
 type = "file"
 sha256 = "abc123"
-mtime = 1234567890
+mtime_nanos = 1234567890
 size = 42
 "#;
 
@@ -137,11 +149,11 @@ size = 42
         match entry {
             WardEntry::File {
                 sha256,
-                mtime,
+                mtime_nanos,
                 size,
             } => {
                 assert_eq!(sha256, "abc123");
-                assert_eq!(*mtime, 1234567890);
+                assert_eq!(*mtime_nanos, 1234567890);
                 assert_eq!(*size, 42);
             }
             _ => panic!("Expected File entry"),
@@ -196,7 +208,7 @@ version = 1
 
 [entries."file1.txt"]
 type = "file"
-mtime = 123
+mtime_nanos = 123
 size = 456
 "#;
 
@@ -243,7 +255,7 @@ sha256 = "should_be_rejected"
             "file1.txt".to_string(),
             WardEntry::File {
                 sha256: "abc123".to_string(),
-                mtime: 1234567890,
+                mtime_nanos: 1234567890,
                 size: 42,
             },
         );
@@ -290,7 +302,7 @@ sha256 = "should_be_rejected"
                 format!("{}.txt", name),
                 WardEntry::File {
                     sha256: format!("hash{}", i),
-                    mtime: 1000 + i as u64,
+                    mtime_nanos: 1000 + i as u64,
                     size: 10 + i as u64,
                 },
             );
@@ -361,7 +373,7 @@ sha256 = "should_be_rejected"
             "test_file.txt".to_string(),
             WardEntry::File {
                 sha256: "test_hash".to_string(),
-                mtime: 9876543210,
+                mtime_nanos: 9876543210,
                 size: 100,
             },
         );
@@ -489,7 +501,7 @@ version = 1
 [entries."test.txt"]
 type = "file"
 sha256 = "abc123"
-mtime = 1234567890
+mtime_nanos = 1234567890
 size = 42
 unknown_field = "should_be_rejected"
 "#;
