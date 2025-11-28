@@ -37,10 +37,14 @@ fn main() -> ExitCode {
     let result: anyhow::Result<ExitCode> = match cli.command {
         Command::Ward {
             path,
-            init,
             fingerprint,
             dry_run,
-        } => handle_ward(path, init, fingerprint, dry_run),
+        } => handle_ward(path, false, fingerprint, dry_run),
+        Command::Init {
+            path,
+            fingerprint,
+            dry_run,
+        } => handle_ward(path, true, fingerprint, dry_run),
         Command::Status {
             path,
             verify,
@@ -110,7 +114,7 @@ fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Re
     println!();
     println!("Fingerprint: {}", result.fingerprint);
     info!(
-        "Run 'treeward ward --fingerprint {}' to accept these changes and update the ward.",
+        "Run 'treeward init|ward --fingerprint {}' to accept these changes and update the ward.",
         result.fingerprint
     );
 

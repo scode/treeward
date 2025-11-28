@@ -9,9 +9,8 @@ fn ward_init_creates_ward_files() {
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("init")
         .arg(temp.path())
-        .arg("--init")
         .assert()
         .success()
         .stdout(predicate::str::is_empty());
@@ -38,9 +37,8 @@ fn ward_dry_run_skips_writes() {
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("init")
         .arg(temp.path())
-        .arg("--init")
         .arg("--dry-run")
         .assert()
         .success()
@@ -56,9 +54,8 @@ fn ward_respects_fingerprint() {
     fs::write(&file_path, "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("init")
         .arg(temp.path())
-        .arg("--init")
         .assert()
         .success();
 

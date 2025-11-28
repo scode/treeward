@@ -9,9 +9,8 @@ fn status_reports_no_changes_after_initial_ward() {
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("init")
         .arg(temp.path())
-        .arg("--init")
         .assert()
         .success();
 
@@ -29,9 +28,8 @@ fn status_shows_added_files_and_fingerprint() {
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("init")
         .arg(temp.path())
-        .arg("--init")
         .assert()
         .success();
 
@@ -54,9 +52,8 @@ fn status_verify_reports_modified_files() {
     fs::write(&file_path, "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("init")
         .arg(temp.path())
-        .arg("--init")
         .assert()
         .success();
 
@@ -79,9 +76,8 @@ fn status_default_uses_metadata_only_policy() {
     fs::write(&file_path, "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("init")
         .arg(temp.path())
-        .arg("--init")
         .assert()
         .success();
 
@@ -103,9 +99,8 @@ fn status_always_verify_reports_modified_files() {
     fs::write(&file_path, "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("init")
         .arg(temp.path())
-        .arg("--init")
         .assert()
         .success();
 

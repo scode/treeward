@@ -17,7 +17,7 @@ pub enum WardError {
     DirList(#[from] DirListError),
     #[error("Checksum error: {0}")]
     Checksum(#[from] ChecksumError),
-    #[error("Not initialized (use --init to initialize)")]
+    #[error("Not initialized (use treeward init to initialize)")]
     NotInitialized,
     #[error("Fingerprint mismatch: expected {expected}, got {actual}")]
     FingerprintMismatch { expected: String, actual: String },

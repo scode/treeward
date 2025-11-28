@@ -22,9 +22,20 @@ pub enum Command {
         #[arg(value_name = "PATH", default_value = ".")]
         path: PathBuf,
 
-        /// Allow warding even if not initialized (required for first ward)
+        /// Only proceed if changes match this fingerprint from status
+        #[arg(long, value_name = "FINGERPRINT")]
+        fingerprint: Option<String>,
+
+        /// Preview changes without writing ward files
         #[arg(long)]
-        init: bool,
+        dry_run: bool,
+    },
+
+    /// Initialize ward files in a directory
+    Init {
+        /// Directory to initialize
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
 
         /// Only proceed if changes match this fingerprint from status
         #[arg(long, value_name = "FINGERPRINT")]

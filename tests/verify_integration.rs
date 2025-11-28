@@ -9,9 +9,8 @@ fn verify_success_when_clean() {
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("init")
         .arg(temp.path())
-        .arg("--init")
         .assert()
         .success();
 
@@ -29,9 +28,8 @@ fn verify_fails_on_added_file() {
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("init")
         .arg(temp.path())
-        .arg("--init")
         .assert()
         .success();
 
@@ -53,9 +51,8 @@ fn verify_fails_on_modified_file() {
     fs::write(&file_path, "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("init")
         .arg(temp.path())
-        .arg("--init")
         .assert()
         .success();
 
