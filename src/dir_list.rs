@@ -6,6 +6,7 @@
 //! containing only its immediate children, allowing directories to be moved
 //! independently while maintaining their integrity information.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -21,21 +22,14 @@ pub enum DirListError {
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FsEntry {
-    pub relative_path: PathBuf,
-    pub metadata: EntryMetadata,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EntryMetadata {
+pub enum FsEntry {
     File { mtime: SystemTime, size: u64 },
     Dir { mtime: SystemTime },
-    Symlink { target: PathBuf },
+    Symlink { symlink_target: PathBuf },
 }
 
 #[allow(dead_code)]
-pub fn list_directory(root: &Path) -> Result<Vec<FsEntry>, DirListError> {
+pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListError> {
     let root = root.canonicalize().map_err(|e| {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
             DirListError::PermissionDenied(root.to_path_buf())
@@ -52,7 +46,7 @@ pub fn list_directory(root: &Path) -> Result<Vec<FsEntry>, DirListError> {
         }
     })?;
 
-    let mut entries = Vec::new();
+    let mut entries = BTreeMap::new();
 
     for entry in read_dir {
         let entry = entry.map_err(DirListError::Io)?;
@@ -70,38 +64,34 @@ pub fn list_directory(root: &Path) -> Result<Vec<FsEntry>, DirListError> {
             }
         })?;
 
-        let relative_path = path
+        let filename = path
             .file_name()
             .ok_or_else(|| DirListError::Io(std::io::Error::other("Failed to get filename")))?
-            .into();
+            .to_string_lossy()
+            .to_string();
 
         let file_type = metadata.file_type();
 
-        let entry_metadata = if file_type.is_symlink() {
-            let target = std::fs::read_link(&path).map_err(|e| {
+        let fs_entry = if file_type.is_symlink() {
+            let symlink_target = std::fs::read_link(&path).map_err(|e| {
                 if e.kind() == std::io::ErrorKind::PermissionDenied {
                     DirListError::PermissionDenied(path.clone())
                 } else {
                     DirListError::Io(e)
                 }
             })?;
-            EntryMetadata::Symlink { target }
+            FsEntry::Symlink { symlink_target }
         } else if file_type.is_dir() {
             let mtime = metadata.modified().map_err(DirListError::Io)?;
-            EntryMetadata::Dir { mtime }
+            FsEntry::Dir { mtime }
         } else {
             let mtime = metadata.modified().map_err(DirListError::Io)?;
             let size = metadata.len();
-            EntryMetadata::File { mtime, size }
+            FsEntry::File { mtime, size }
         };
 
-        entries.push(FsEntry {
-            relative_path,
-            metadata: entry_metadata,
-        });
+        entries.insert(filename, fs_entry);
     }
-
-    entries.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
 
     Ok(entries)
 }
@@ -126,21 +116,27 @@ mod tests {
 
         assert_eq!(entries.len(), 3);
 
-        assert_eq!(entries[0].relative_path, Path::new("dir1"));
-        assert!(matches!(entries[0].metadata, EntryMetadata::Dir { .. }));
+        assert!(entries.contains_key("dir1"));
+        assert!(matches!(entries.get("dir1").unwrap(), FsEntry::Dir { .. }));
 
-        assert_eq!(entries[1].relative_path, Path::new("file1.txt"));
-        assert!(matches!(entries[1].metadata, EntryMetadata::File { .. }));
+        assert!(entries.contains_key("file1.txt"));
+        assert!(matches!(
+            entries.get("file1.txt").unwrap(),
+            FsEntry::File { .. }
+        ));
 
-        assert_eq!(entries[2].relative_path, Path::new("file2.txt"));
-        assert!(matches!(entries[2].metadata, EntryMetadata::File { .. }));
+        assert!(entries.contains_key("file2.txt"));
+        assert!(matches!(
+            entries.get("file2.txt").unwrap(),
+            FsEntry::File { .. }
+        ));
 
         let subdir_entries = list_directory(&root.join("dir1")).unwrap();
         assert_eq!(subdir_entries.len(), 1);
-        assert_eq!(subdir_entries[0].relative_path, Path::new("file3.txt"));
+        assert!(subdir_entries.contains_key("file3.txt"));
         assert!(matches!(
-            subdir_entries[0].metadata,
-            EntryMetadata::File { .. }
+            subdir_entries.get("file3.txt").unwrap(),
+            FsEntry::File { .. }
         ));
     }
 
@@ -157,13 +153,11 @@ mod tests {
 
         assert_eq!(entries.len(), 2);
 
-        let link_entry = entries
-            .iter()
-            .find(|e| e.relative_path == Path::new("link.txt"))
-            .unwrap();
-        assert!(matches!(link_entry.metadata, EntryMetadata::Symlink { .. }));
-        if let EntryMetadata::Symlink { target } = &link_entry.metadata {
-            assert!(target.ends_with("target.txt"));
+        assert!(entries.contains_key("link.txt"));
+        let link_entry = entries.get("link.txt").unwrap();
+        assert!(matches!(link_entry, FsEntry::Symlink { .. }));
+        if let FsEntry::Symlink { symlink_target } = link_entry {
+            assert!(symlink_target.ends_with("target.txt"));
         }
     }
 
@@ -189,23 +183,26 @@ mod tests {
 
         let entries = list_directory(root).unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].relative_path, Path::new("dir1"));
-        assert!(matches!(entries[0].metadata, EntryMetadata::Dir { .. }));
+        assert!(entries.contains_key("dir1"));
+        assert!(matches!(entries.get("dir1").unwrap(), FsEntry::Dir { .. }));
 
         let entries = list_directory(&root.join("dir1")).unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].relative_path, Path::new("dir2"));
-        assert!(matches!(entries[0].metadata, EntryMetadata::Dir { .. }));
+        assert!(entries.contains_key("dir2"));
+        assert!(matches!(entries.get("dir2").unwrap(), FsEntry::Dir { .. }));
 
         let entries = list_directory(&root.join("dir1/dir2")).unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].relative_path, Path::new("dir3"));
-        assert!(matches!(entries[0].metadata, EntryMetadata::Dir { .. }));
+        assert!(entries.contains_key("dir3"));
+        assert!(matches!(entries.get("dir3").unwrap(), FsEntry::Dir { .. }));
 
         let entries = list_directory(&root.join("dir1/dir2/dir3")).unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].relative_path, Path::new("file.txt"));
-        assert!(matches!(entries[0].metadata, EntryMetadata::File { .. }));
+        assert!(entries.contains_key("file.txt"));
+        assert!(matches!(
+            entries.get("file.txt").unwrap(),
+            FsEntry::File { .. }
+        ));
     }
 
     #[test]
@@ -222,21 +219,11 @@ mod tests {
         let entries = list_directory(root).unwrap();
 
         assert_eq!(entries.len(), 2);
-        assert!(
-            entries
-                .iter()
-                .all(|e| e.relative_path.file_name()
-                    != Some(std::ffi::OsStr::new(TREEWARD_FILENAME)))
-        );
+        assert!(!entries.contains_key(TREEWARD_FILENAME));
 
         let subdir_entries = list_directory(&root.join("dir1")).unwrap();
         assert_eq!(subdir_entries.len(), 1);
-        assert!(
-            subdir_entries
-                .iter()
-                .all(|e| e.relative_path.file_name()
-                    != Some(std::ffi::OsStr::new(TREEWARD_FILENAME)))
-        );
+        assert!(!subdir_entries.contains_key(TREEWARD_FILENAME));
     }
 
     #[test]
@@ -277,10 +264,11 @@ mod tests {
         let entries = list_directory(root).unwrap();
 
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].relative_path, Path::new("broken_link"));
-        assert!(matches!(entries[0].metadata, EntryMetadata::Symlink { .. }));
-        if let EntryMetadata::Symlink { target } = &entries[0].metadata {
-            assert_eq!(target, &PathBuf::from("/nonexistent/target"));
+        assert!(entries.contains_key("broken_link"));
+        let entry = entries.get("broken_link").unwrap();
+        assert!(matches!(entry, FsEntry::Symlink { .. }));
+        if let FsEntry::Symlink { symlink_target } = entry {
+            assert_eq!(symlink_target, &PathBuf::from("/nonexistent/target"));
         }
     }
 
@@ -311,23 +299,16 @@ mod tests {
         let entries = result.unwrap();
         assert_eq!(entries.len(), 2);
 
-        let link_entry = entries
-            .iter()
-            .find(|e| e.relative_path == Path::new("link"))
-            .unwrap();
-        assert!(matches!(link_entry.metadata, EntryMetadata::Symlink { .. }));
-        if let EntryMetadata::Symlink { target } = &link_entry.metadata {
-            assert!(target.ends_with("target.txt"));
+        assert!(entries.contains_key("link"));
+        let link_entry = entries.get("link").unwrap();
+        assert!(matches!(link_entry, FsEntry::Symlink { .. }));
+        if let FsEntry::Symlink { symlink_target } = link_entry {
+            assert!(symlink_target.ends_with("target.txt"));
         }
 
-        let restricted_entry = entries
-            .iter()
-            .find(|e| e.relative_path == Path::new("restricted"))
-            .unwrap();
-        assert!(matches!(
-            restricted_entry.metadata,
-            EntryMetadata::Dir { .. }
-        ));
+        assert!(entries.contains_key("restricted"));
+        let restricted_entry = entries.get("restricted").unwrap();
+        assert!(matches!(restricted_entry, FsEntry::Dir { .. }));
     }
 
     #[test]
@@ -343,9 +324,11 @@ mod tests {
         let entries2 = list_directory(root).unwrap();
 
         assert_eq!(entries1.len(), 3);
-        assert_eq!(entries1[0].relative_path, Path::new("apple.txt"));
-        assert_eq!(entries1[1].relative_path, Path::new("banana.txt"));
-        assert_eq!(entries1[2].relative_path, Path::new("zebra.txt"));
+
+        let keys: Vec<&String> = entries1.keys().collect();
+        assert_eq!(keys[0], "apple.txt");
+        assert_eq!(keys[1], "banana.txt");
+        assert_eq!(keys[2], "zebra.txt");
 
         assert_eq!(entries1, entries2);
     }
@@ -360,8 +343,10 @@ mod tests {
         let entries = list_directory(root).unwrap();
 
         assert_eq!(entries.len(), 1);
-        assert!(matches!(entries[0].metadata, EntryMetadata::File { .. }));
-        if let EntryMetadata::File { size, .. } = &entries[0].metadata {
+        assert!(entries.contains_key("test.txt"));
+        let entry = entries.get("test.txt").unwrap();
+        assert!(matches!(entry, FsEntry::File { .. }));
+        if let FsEntry::File { size, .. } = entry {
             assert_eq!(*size, 7);
         }
     }
@@ -376,7 +361,11 @@ mod tests {
         let entries = list_directory(root).unwrap();
 
         assert_eq!(entries.len(), 1);
-        assert!(matches!(entries[0].metadata, EntryMetadata::Dir { .. }));
+        assert!(entries.contains_key("testdir"));
+        assert!(matches!(
+            entries.get("testdir").unwrap(),
+            FsEntry::Dir { .. }
+        ));
     }
 
     #[test]
@@ -390,9 +379,11 @@ mod tests {
         let entries = list_directory(root).unwrap();
 
         assert_eq!(entries.len(), 1);
-        assert!(matches!(entries[0].metadata, EntryMetadata::Symlink { .. }));
-        if let EntryMetadata::Symlink { target } = &entries[0].metadata {
-            assert_eq!(target, &PathBuf::from("/some/target"));
+        assert!(entries.contains_key("link"));
+        let entry = entries.get("link").unwrap();
+        assert!(matches!(entry, FsEntry::Symlink { .. }));
+        if let FsEntry::Symlink { symlink_target } = entry {
+            assert_eq!(symlink_target, &PathBuf::from("/some/target"));
         }
     }
 }
