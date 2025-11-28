@@ -22,6 +22,7 @@ fn main() {
             dry_run,
         } => handle_ward(path, init, fingerprint, dry_run),
         Command::Status { path, verify } => handle_status(path, verify),
+        Command::Verify { path } => handle_verify(path),
     };
 
     if let Err(err) = result {
@@ -76,7 +77,35 @@ fn handle_status(path: PathBuf, verify: bool) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    for change in &result.changes {
+    print_changes(&result.changes);
+
+    println!();
+    println!(
+        "Run 'treeward ward --fingerprint {}' to accept these changes and update the ward.",
+        result.fingerprint
+    );
+
+    Ok(())
+}
+
+fn handle_verify(path: PathBuf) -> anyhow::Result<()> {
+    let result = status::compute_status(&path, ChecksumPolicy::Always)?;
+
+    if result.changes.is_empty() {
+        println!("Verification successful: No changes or corruption detected");
+        return Ok(());
+    }
+
+    print_changes(&result.changes);
+
+    anyhow::bail!(
+        "Verification failed: {} changes detected",
+        result.changes.len()
+    );
+}
+
+fn print_changes(changes: &[status::Change]) {
+    for change in changes {
         let status_code = match change.change_type {
             status::ChangeType::Added => "A",
             status::ChangeType::Removed => "R",
@@ -86,12 +115,4 @@ fn handle_status(path: PathBuf, verify: bool) -> anyhow::Result<()> {
 
         println!("{} {}", status_code, change.path.display());
     }
-
-    println!();
-    println!(
-        "Run 'treeward ward --fingerprint {}' to accept these changes and update the ward.",
-        result.fingerprint
-    );
-
-    Ok(())
 }
