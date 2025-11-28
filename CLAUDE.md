@@ -1,4 +1,137 @@
 # CLAUDE.md
 
-See `AGENTS.md` for all instructions about how to operate in this repo.
-Always follow the guidance and agent definitions in `AGENTS.md`.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+See `AGENTS.md` for additional instructions about how to operate in this repo.
+Always follow the guidance in `AGENTS.md`.
+
+## Project Overview
+
+**treeward** is a command-line file integrity tool for checksumming and verifying trees of files. It uses a distributed approach where each directory contains a `.treeward` TOML file tracking its immediate children (non-recursive per-directory model), allowing directories to be moved independently while maintaining integrity information.
+
+**Language:** Rust 2024 edition
+
+## Build and Test Commands
+
+```bash
+# Run all tests
+cargo test
+
+# Run tests for a specific module
+cargo test checksum
+cargo test ward_file
+cargo test dir_list
+
+# Run with output visible (for debugging test failures)
+cargo test -- --nocapture
+
+# Format code
+cargo fmt
+
+# Lint
+cargo clippy -- -D warnings
+
+# Build
+cargo build
+cargo build --release
+```
+
+## Architecture
+
+### Core Design Principles
+
+1. **Non-recursive directory model**: Each directory has its own `.treeward` file containing metadata only for its immediate children (files, subdirectories, symlinks). This allows directories to be moved independently.
+
+2. **BTreeMap for entries**: All entry collections use `BTreeMap<String, EntryType>` for deterministic ordering and consistent serialization. This ensures stable TOML output.
+
+3. **Consistent naming across modules**:
+   - Field name `symlink_target` (not `target`) for symlink destinations
+   - Entry variants: `File`, `Dir`, `Symlink`
+   - Files have `mtime`, `size`, and (in ward_file only) `sha256`
+   - Directories have `mtime` only
+   - Symlinks have `symlink_target` only
+
+4. **Error handling philosophy**:
+   - Use `thiserror` for typed errors in library modules
+   - `anyhow` is acceptable at CLI level (not yet implemented)
+   - Corrupted/unreadable `.treeward` files are fatal errors
+   - Permission errors are fatal errors
+   - Never silently skip problems - all issues are reported as errors
+
+5. **Concurrent modification detection**: Before and after checksumming a file, compare mtime to detect changes during the read operation. If detected, return an error (no retry logic).
+
+### Module Structure
+
+```
+src/
+├── checksum.rs    - SHA-256 file checksumming with concurrent modification detection
+├── dir_list.rs    - Non-recursive directory listing with filesystem metadata
+├── ward_file.rs   - TOML serialization/deserialization for .treeward files
+└── main.rs        - CLI entry point (currently stub)
+```
+
+### Key Data Flow
+
+**ward_file.rs** (persistent format):
+- `WardFile` contains `BTreeMap<String, WardEntry>`
+- `WardEntry` enum variants: `File { sha256, mtime, size }`, `Dir {}`, `Symlink { symlink_target }`
+- Serializes to/from TOML with deterministic ordering
+- Version-checked parsing (current version: 1)
+
+**dir_list.rs** (runtime representation):
+- `list_directory()` returns `BTreeMap<String, FsEntry>`
+- `FsEntry` enum variants: `File { mtime, size }`, `Dir { mtime }`, `Symlink { symlink_target }`
+- Excludes `.treeward` files from listings
+- No SHA-256 checksums (that's checksum.rs's job)
+
+**checksum.rs**:
+- `checksum_file()` computes SHA-256 with concurrent modification detection
+- Records mtime before and after reading file contents
+- Returns `FileChecksum { sha256, mtime, size }`
+
+### Implementation Plan Status
+
+The project follows a bottom-up implementation approach (see PLAN.md for full details):
+
+- ✅ Step 0: Repository bootstrapped
+- ✅ Step 1: File checksumming implemented (`checksum.rs`)
+- ✅ Step 2: Ward file format implemented (`ward_file.rs`)
+- ✅ Step 3: Non-recursive directory listing implemented (`dir_list.rs`)
+- ⏳ Step 4+: Status computation, ward update logic, verify logic, CLI layer (not yet implemented)
+
+### Testing Strategy
+
+- Each module has comprehensive unit tests in a `tests` submodule
+- Use `tempfile` crate for filesystem-based tests
+- Tests cover happy paths, error cases, edge cases, and platform-specific behavior (Unix symlinks)
+- All tests must pass before merging changes
+
+### Symlink Handling
+
+Symlinks are tracked but NOT followed:
+- `symlink_target` field stores the raw symlink target path
+- Use `std::fs::symlink_metadata()` (not `metadata()`) to avoid following symlinks
+- Use `std::fs::read_link()` to read symlink targets
+- Broken symlinks are valid and tracked
+
+## Important Conventions
+
+### Data Consistency
+
+When adding or modifying entry types, ensure consistency between:
+1. `ward_file::WardEntry` (persistent TOML format)
+2. `dir_list::FsEntry` (runtime representation)
+3. Field names, especially `symlink_target`
+
+### TOML Serialization
+
+- Always use `BTreeMap` for entry collections to ensure stable output
+- TOML files should have `[metadata]` section with `version = 1`
+- Entries are stored as TOML tables: `[entries."filename"]`
+- Use `#[serde(deny_unknown_fields)]` to catch forward-compatibility issues
+
+### Code Style
+
+- Do not add trivial inline comments (see AGENTS.md)
+- Only add comments for non-obvious logic or to explain "why" not "what"
+- Use `#[allow(dead_code)]` for items not yet wired into CLI
