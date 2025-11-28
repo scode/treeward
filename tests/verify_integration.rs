@@ -20,9 +20,7 @@ fn verify_success_when_clean() {
         .arg(temp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "Verification successful: No changes or corruption detected",
-        ));
+        .stdout(predicate::str::is_empty());
 }
 
 #[test]

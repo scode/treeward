@@ -7,11 +7,22 @@ mod ward_file;
 
 use cli::{Cli, Command};
 use status::ChecksumPolicy;
+use std::fmt as stdfmt;
+use std::io::{IsTerminal, stderr};
 use std::path::PathBuf;
 use std::process;
+use tracing::{Event, Level, Subscriber, error, info};
+use tracing_subscriber::filter::EnvFilter;
+use tracing_subscriber::fmt as tracing_fmt;
+use tracing_subscriber::fmt::FmtContext;
+use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::registry::LookupSpan;
 use ward::{WardOptions, ward_directory};
 
 fn main() {
+    init_tracing();
+
     let cli = Cli::parse();
 
     let result = match cli.command {
@@ -30,7 +41,7 @@ fn main() {
     };
 
     if let Err(err) = result {
-        eprintln!("Error: {}", err);
+        error!("{err}");
         process::exit(1);
     }
 }
@@ -50,17 +61,17 @@ fn handle_ward(
     let result = ward_directory(&path, options)?;
 
     if dry_run {
-        println!("DRY RUN - no files were modified");
+        info!("DRY RUN - no files were modified");
     }
 
-    println!("Warded {} files", result.files_warded);
+    info!("Warded {} files", result.files_warded);
 
     if !result.ward_files_updated.is_empty() {
-        println!("Updated {} ward files:", result.ward_files_updated.len());
+        info!("Updated {} ward files:", result.ward_files_updated.len());
         let root = path.canonicalize().unwrap_or(path.clone());
 
         for ward_path in result.ward_files_updated {
-            println!("  {}", root.join(ward_path).display());
+            info!("  {}", root.join(ward_path).display());
         }
     }
 
@@ -101,7 +112,7 @@ fn handle_verify(path: PathBuf) -> anyhow::Result<()> {
     let result = status::compute_status(&path, ChecksumPolicy::Always)?;
 
     if result.changes.is_empty() {
-        println!("Verification successful: No changes or corruption detected");
+        info!("Verification successful: No changes or corruption detected");
         return Ok(());
     }
 
@@ -123,5 +134,55 @@ fn print_changes(changes: &[status::Change]) {
         };
 
         println!("{} {}", status_code, change.path.display());
+    }
+}
+
+fn init_tracing() {
+    let stderr_is_terminal = stderr().is_terminal();
+    let formatter = EmojiFormatter { stderr_is_terminal };
+
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
+
+    let fmt_layer = tracing_fmt::layer()
+        .event_format(formatter)
+        .with_writer(std::io::stderr);
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt_layer)
+        .init();
+}
+
+struct EmojiFormatter {
+    stderr_is_terminal: bool,
+}
+
+impl<S, N> FormatEvent<S, N> for EmojiFormatter
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        ctx: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &Event<'_>,
+    ) -> stdfmt::Result {
+        if self.stderr_is_terminal {
+            match *event.metadata().level() {
+                Level::WARN => write!(writer, "⚠️  ")?,
+                Level::ERROR => write!(writer, "❌️ ")?,
+                _ => {}
+            }
+        } else {
+            match *event.metadata().level() {
+                Level::WARN => writer.write_str("WARN: ")?,
+                Level::ERROR => writer.write_str("ERROR: ")?,
+                _ => {}
+            }
+        }
+
+        ctx.format_fields(writer.by_ref(), event)?;
+        writeln!(writer)
     }
 }

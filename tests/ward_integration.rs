@@ -14,7 +14,7 @@ fn ward_init_creates_ward_files() {
         .arg("--init")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Warded 1 files"));
+        .stdout(predicate::str::is_empty());
 
     assert!(temp.path().join(".treeward").exists());
 }
@@ -44,8 +44,7 @@ fn ward_dry_run_skips_writes() {
         .arg("--dry-run")
         .assert()
         .success()
-        .stdout(predicate::str::contains("DRY RUN"))
-        .stdout(predicate::str::contains("Warded 1 files"));
+        .stdout(predicate::str::is_empty());
 
     assert!(!temp.path().join(".treeward").exists());
 }
@@ -85,7 +84,7 @@ fn ward_respects_fingerprint() {
         .arg(&fingerprint)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Warded 1 files"));
+        .stdout(predicate::str::is_empty());
 }
 
 fn extract_fingerprint(output: &str) -> String {
