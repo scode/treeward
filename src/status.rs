@@ -37,6 +37,23 @@ pub struct Change {
 }
 
 #[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChecksumPolicy {
+    /// Never compute checksums. Files with differing metadata will be
+    /// reported as PossiblyModified.
+    Never,
+
+    /// Compute checksums only for files that appear possibly modified
+    /// (mtime or size differs from ward). This upgrades PossiblyModified
+    /// to either Modified (checksum differs) or no change (checksum matches).
+    WhenPossiblyModified,
+
+    /// Always compute checksums for all files in the ward, even if metadata
+    /// matches. This can detect silent corruption or metadata manipulation.
+    Always,
+}
+
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusResult {
     pub changes: Vec<Change>,
@@ -58,8 +75,10 @@ pub struct StatusResult {
 /// # Arguments
 ///
 /// * `root` - Directory to analyze (will be canonicalized)
-/// * `verify_checksums` - If true, compute SHA-256 checksums to definitively
-///   identify modified files. If false, only compare metadata (mtime/size).
+/// * `policy` - Controls when checksums are computed:
+///   - `Never`: Only compare metadata (mtime/size)
+///   - `WhenPossiblyModified`: Checksum files with differing metadata
+///   - `Always`: Checksum all files (detects silent corruption)
 ///
 /// # Returns
 ///
@@ -71,7 +90,7 @@ pub struct StatusResult {
 ///
 /// * `Added` - Entry exists in filesystem but not in ward
 /// * `Removed` - Entry exists in ward but not in filesystem
-/// * `PossiblyModified` - Metadata differs (only when `verify_checksums=false`)
+/// * `PossiblyModified` - Metadata differs (only with `ChecksumPolicy::Never`)
 /// * `Modified` - Content differs (checksum mismatch, symlink target changed,
 ///   or type changed)
 ///
@@ -80,9 +99,9 @@ pub struct StatusResult {
 /// Returns error if:
 /// * Ward files are corrupted or have unsupported versions
 /// * Permission denied accessing files or directories
-/// * File modified during checksumming (with `verify_checksums=true`)
+/// * File modified during checksumming
 #[allow(dead_code)]
-pub fn compute_status(root: &Path, verify_checksums: bool) -> Result<StatusResult, StatusError> {
+pub fn compute_status(root: &Path, policy: ChecksumPolicy) -> Result<StatusResult, StatusError> {
     let root = root.canonicalize().map_err(|e| {
         if e.kind() == ErrorKind::PermissionDenied {
             StatusError::DirList(DirListError::PermissionDenied(root.to_path_buf()))
@@ -93,7 +112,7 @@ pub fn compute_status(root: &Path, verify_checksums: bool) -> Result<StatusResul
 
     let mut changes = Vec::new();
 
-    walk_directory(&root, &root, &mut changes, verify_checksums)?;
+    walk_directory(&root, &root, &mut changes, policy)?;
 
     changes.sort_by(|a, b| a.path.cmp(&b.path));
 
@@ -109,7 +128,7 @@ fn walk_directory(
     tree_root: &Path,
     current_dir: &Path,
     changes: &mut Vec<Change>,
-    verify_checksums: bool,
+    policy: ChecksumPolicy,
 ) -> Result<(), StatusError> {
     let ward_path = current_dir.join(".treeward");
     let ward_file = try_load_ward_file(&ward_path)?;
@@ -127,20 +146,20 @@ fn walk_directory(
         &ward_entries,
         &fs_entries,
         changes,
-        verify_checksums,
+        policy,
     )?;
 
     for (name, entry) in &fs_entries {
         if matches!(entry, FsEntry::Dir { .. }) {
             let child_path = current_dir.join(name);
-            walk_directory(tree_root, &child_path, changes, verify_checksums)?;
+            walk_directory(tree_root, &child_path, changes, policy)?;
         }
     }
 
     for (name, entry) in &ward_entries {
         if matches!(entry, WardEntry::Dir {}) && !fs_entries.contains_key(name) {
             let child_path = current_dir.join(name);
-            walk_directory(tree_root, &child_path, changes, verify_checksums)?;
+            walk_directory(tree_root, &child_path, changes, policy)?;
         }
     }
 
@@ -153,7 +172,7 @@ fn compare_entries(
     ward_entries: &BTreeMap<String, WardEntry>,
     fs_entries: &BTreeMap<String, FsEntry>,
     changes: &mut Vec<Change>,
-    verify_checksums: bool,
+    policy: ChecksumPolicy,
 ) -> Result<(), StatusError> {
     for name in fs_entries.keys() {
         if !ward_entries.contains_key(name) {
@@ -184,7 +203,7 @@ fn compare_entries(
                 ward_entry,
                 fs_entry,
                 changes,
-                verify_checksums,
+                policy,
             )?;
         }
     }
@@ -199,7 +218,7 @@ fn check_modification(
     ward_entry: &WardEntry,
     fs_entry: &FsEntry,
     changes: &mut Vec<Change>,
-    verify_checksums: bool,
+    policy: ChecksumPolicy,
 ) -> Result<(), StatusError> {
     let relative_path = current_dir.strip_prefix(tree_root).unwrap().join(name);
     let absolute_path = current_dir.join(name);
@@ -217,22 +236,27 @@ fn check_modification(
             },
         ) => {
             let fs_mtime_nanos = fs_mtime.duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64;
+            let metadata_differs = fs_mtime_nanos != *ward_mtime_nanos || fs_size != ward_size;
 
-            if fs_mtime_nanos != *ward_mtime_nanos || fs_size != ward_size {
-                if verify_checksums {
-                    let checksum = checksum_file(&absolute_path)?;
-                    if &checksum.sha256 != ward_sha {
-                        changes.push(Change {
-                            path: relative_path,
-                            change_type: ChangeType::Modified,
-                        });
-                    }
-                } else {
+            let should_checksum = match policy {
+                ChecksumPolicy::Never => false,
+                ChecksumPolicy::WhenPossiblyModified => metadata_differs,
+                ChecksumPolicy::Always => true,
+            };
+
+            if should_checksum {
+                let checksum = checksum_file(&absolute_path)?;
+                if &checksum.sha256 != ward_sha {
                     changes.push(Change {
                         path: relative_path,
-                        change_type: ChangeType::PossiblyModified,
+                        change_type: ChangeType::Modified,
                     });
                 }
+            } else if metadata_differs {
+                changes.push(Change {
+                    path: relative_path,
+                    change_type: ChangeType::PossiblyModified,
+                });
             }
         }
         (WardEntry::Dir {}, FsEntry::Dir { .. }) => {}
@@ -348,10 +372,10 @@ mod tests {
         );
         create_ward_file(&root.join("dir1"), dir1_entries);
 
-        let result = compute_status(root, false).unwrap();
+        let result = compute_status(root, ChecksumPolicy::Never).unwrap();
         assert_eq!(result.changes.len(), 0);
 
-        let result2 = compute_status(root, false).unwrap();
+        let result2 = compute_status(root, ChecksumPolicy::Never).unwrap();
         assert_eq!(result.fingerprint, result2.fingerprint);
     }
 
@@ -364,7 +388,7 @@ mod tests {
 
         fs::write(root.join("file1.txt"), "content1").unwrap();
 
-        let result = compute_status(root, false).unwrap();
+        let result = compute_status(root, ChecksumPolicy::Never).unwrap();
         assert_eq!(result.changes.len(), 1);
         assert_eq!(result.changes[0].path, PathBuf::from("file1.txt"));
         assert_eq!(result.changes[0].change_type, ChangeType::Added);
@@ -380,7 +404,7 @@ mod tests {
         fs::create_dir(root.join("dir1")).unwrap();
         fs::write(root.join("dir1/file1.txt"), "content").unwrap();
 
-        let result = compute_status(root, false).unwrap();
+        let result = compute_status(root, ChecksumPolicy::Never).unwrap();
         assert_eq!(result.changes.len(), 2);
 
         let paths: Vec<PathBuf> = result.changes.iter().map(|c| c.path.clone()).collect();
@@ -408,7 +432,7 @@ mod tests {
         );
         create_ward_file(root, entries);
 
-        let result = compute_status(root, false).unwrap();
+        let result = compute_status(root, ChecksumPolicy::Never).unwrap();
         assert_eq!(result.changes.len(), 1);
         assert_eq!(result.changes[0].path, PathBuf::from("file1.txt"));
         assert_eq!(result.changes[0].change_type, ChangeType::Removed);
@@ -438,7 +462,7 @@ mod tests {
 
         fs::remove_dir_all(root.join("dir1")).unwrap();
 
-        let result = compute_status(root, false).unwrap();
+        let result = compute_status(root, ChecksumPolicy::Never).unwrap();
         assert_eq!(result.changes.len(), 1);
 
         assert_eq!(result.changes[0].path, PathBuf::from("dir1"));
@@ -464,7 +488,7 @@ mod tests {
         );
         create_ward_file(root, entries);
 
-        let result = compute_status(root, false).unwrap();
+        let result = compute_status(root, ChecksumPolicy::Never).unwrap();
         assert_eq!(result.changes.len(), 1);
         assert_eq!(result.changes[0].path, PathBuf::from("file1.txt"));
         assert_eq!(result.changes[0].change_type, ChangeType::PossiblyModified);
@@ -488,7 +512,7 @@ mod tests {
         );
         create_ward_file(root, entries);
 
-        let result = compute_status(root, true).unwrap();
+        let result = compute_status(root, ChecksumPolicy::WhenPossiblyModified).unwrap();
         assert_eq!(result.changes.len(), 1);
         assert_eq!(result.changes[0].path, PathBuf::from("file1.txt"));
         assert_eq!(result.changes[0].change_type, ChangeType::Modified);
@@ -513,7 +537,7 @@ mod tests {
         );
         create_ward_file(root, entries);
 
-        let result = compute_status(root, true).unwrap();
+        let result = compute_status(root, ChecksumPolicy::WhenPossiblyModified).unwrap();
         assert_eq!(result.changes.len(), 0);
     }
 
@@ -526,8 +550,8 @@ mod tests {
 
         fs::write(root.join("file1.txt"), "content").unwrap();
 
-        let result1 = compute_status(root, false).unwrap();
-        let result2 = compute_status(root, false).unwrap();
+        let result1 = compute_status(root, ChecksumPolicy::Never).unwrap();
+        let result2 = compute_status(root, ChecksumPolicy::Never).unwrap();
 
         assert_eq!(result1.fingerprint, result2.fingerprint);
     }
@@ -544,8 +568,8 @@ mod tests {
         fs::write(root2.join("file4.txt"), "content").unwrap();
         create_ward_file(root2, BTreeMap::new());
 
-        let result1 = compute_status(root1, false).unwrap();
-        let result2 = compute_status(root2, false).unwrap();
+        let result1 = compute_status(root1, ChecksumPolicy::Never).unwrap();
+        let result2 = compute_status(root2, ChecksumPolicy::Never).unwrap();
 
         assert_ne!(result1.fingerprint, result2.fingerprint);
     }
@@ -579,7 +603,7 @@ mod tests {
         );
         create_ward_file(root, entries);
 
-        let result = compute_status(root, false).unwrap();
+        let result = compute_status(root, ChecksumPolicy::Never).unwrap();
         assert_eq!(result.changes.len(), 3);
 
         let change_types: BTreeMap<PathBuf, ChangeType> = result
@@ -647,7 +671,7 @@ mod tests {
         );
         create_ward_file(root, entries);
 
-        let result = compute_status(root, false).unwrap();
+        let result = compute_status(root, ChecksumPolicy::Never).unwrap();
 
         let link_change = result
             .changes
@@ -692,7 +716,7 @@ mod tests {
         );
         create_ward_file(&root.join("dir1/dir2/dir3"), dir3_entries);
 
-        let result = compute_status(root, false).unwrap();
+        let result = compute_status(root, ChecksumPolicy::Never).unwrap();
 
         let file_change = result
             .changes
@@ -714,7 +738,7 @@ mod tests {
         fs::write(root.join("file2.txt"), "content2").unwrap();
         fs::create_dir(root.join("dir1")).unwrap();
 
-        let result = compute_status(root, false).unwrap();
+        let result = compute_status(root, ChecksumPolicy::Never).unwrap();
         assert_eq!(result.changes.len(), 3);
 
         for change in &result.changes {
@@ -750,7 +774,7 @@ mod tests {
         );
         create_ward_file(root, entries);
 
-        let result = compute_status(root, false).unwrap();
+        let result = compute_status(root, ChecksumPolicy::Never).unwrap();
 
         let item_change = result
             .changes
@@ -758,5 +782,165 @@ mod tests {
             .find(|c| c.path == PathBuf::from("item"));
         assert!(item_change.is_some());
         assert_eq!(item_change.unwrap().change_type, ChangeType::Modified);
+    }
+
+    #[test]
+    fn test_checksum_policy_never() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(root.join("file1.txt"), "original content").unwrap();
+        let original_checksum = checksum_file(&root.join("file1.txt")).unwrap();
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "file1.txt".to_string(),
+            WardEntry::File {
+                sha256: original_checksum.sha256.clone(),
+                mtime_nanos: 1000,
+                size: original_checksum.size,
+            },
+        );
+        create_ward_file(root, entries);
+
+        fs::write(root.join("file1.txt"), "modified content").unwrap();
+
+        let result = compute_status(root, ChecksumPolicy::Never).unwrap();
+        assert_eq!(result.changes.len(), 1);
+        assert_eq!(result.changes[0].path, PathBuf::from("file1.txt"));
+        assert_eq!(result.changes[0].change_type, ChangeType::PossiblyModified);
+    }
+
+    #[test]
+    fn test_checksum_policy_when_possibly_modified_metadata_differs() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(root.join("file1.txt"), "modified content").unwrap();
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "file1.txt".to_string(),
+            WardEntry::File {
+                sha256: "wrong_checksum".to_string(),
+                mtime_nanos: 1000,
+                size: 16,
+            },
+        );
+        create_ward_file(root, entries);
+
+        let result = compute_status(root, ChecksumPolicy::WhenPossiblyModified).unwrap();
+        assert_eq!(result.changes.len(), 1);
+        assert_eq!(result.changes[0].path, PathBuf::from("file1.txt"));
+        assert_eq!(result.changes[0].change_type, ChangeType::Modified);
+    }
+
+    #[test]
+    fn test_checksum_policy_when_possibly_modified_metadata_same() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(root.join("file1.txt"), "content").unwrap();
+        let checksum = checksum_file(&root.join("file1.txt")).unwrap();
+        let mtime_nanos = checksum
+            .mtime
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "file1.txt".to_string(),
+            WardEntry::File {
+                sha256: checksum.sha256,
+                mtime_nanos,
+                size: checksum.size,
+            },
+        );
+        create_ward_file(root, entries);
+
+        let result = compute_status(root, ChecksumPolicy::WhenPossiblyModified).unwrap();
+        assert_eq!(result.changes.len(), 0);
+    }
+
+    #[test]
+    fn test_checksum_policy_always_with_corruption() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(root.join("file1.txt"), "content").unwrap();
+        let actual_checksum = checksum_file(&root.join("file1.txt")).unwrap();
+        let mtime_nanos = actual_checksum
+            .mtime
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "file1.txt".to_string(),
+            WardEntry::File {
+                sha256: "wrong_checksum_simulating_corruption".to_string(),
+                mtime_nanos,
+                size: actual_checksum.size,
+            },
+        );
+        create_ward_file(root, entries);
+
+        let result = compute_status(root, ChecksumPolicy::Always).unwrap();
+        assert_eq!(result.changes.len(), 1);
+        assert_eq!(result.changes[0].path, PathBuf::from("file1.txt"));
+        assert_eq!(result.changes[0].change_type, ChangeType::Modified);
+    }
+
+    #[test]
+    fn test_checksum_policy_always_without_corruption() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(root.join("file1.txt"), "content").unwrap();
+        let checksum = checksum_file(&root.join("file1.txt")).unwrap();
+        let mtime_nanos = checksum
+            .mtime
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "file1.txt".to_string(),
+            WardEntry::File {
+                sha256: checksum.sha256,
+                mtime_nanos,
+                size: checksum.size,
+            },
+        );
+        create_ward_file(root, entries);
+
+        let result = compute_status(root, ChecksumPolicy::Always).unwrap();
+        assert_eq!(result.changes.len(), 0);
+    }
+
+    #[test]
+    fn test_metadata_changed_but_content_unchanged() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(root.join("file1.txt"), "content").unwrap();
+        let checksum = checksum_file(&root.join("file1.txt")).unwrap();
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "file1.txt".to_string(),
+            WardEntry::File {
+                sha256: checksum.sha256,
+                mtime_nanos: 1000,
+                size: checksum.size,
+            },
+        );
+        create_ward_file(root, entries);
+
+        let result = compute_status(root, ChecksumPolicy::WhenPossiblyModified).unwrap();
+        assert_eq!(result.changes.len(), 0);
     }
 }
