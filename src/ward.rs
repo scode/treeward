@@ -203,9 +203,11 @@ fn walk_and_ward(
         true
     };
 
-    if should_write && !dry_run {
-        ward_file.save(&ward_path)?;
+    if should_write {
         let relative_path = ward_path.strip_prefix(tree_root).unwrap().to_path_buf();
+        if !dry_run {
+            ward_file.save(&ward_path)?;
+        }
         ward_files_updated.push(relative_path);
     }
 
@@ -397,9 +399,37 @@ mod tests {
         let result = ward_directory(root, options).unwrap();
 
         assert_eq!(result.files_warded, 1);
-        assert_eq!(result.ward_files_updated.len(), 0);
+        assert_eq!(result.ward_files_updated, vec![PathBuf::from(".treeward")]);
 
         assert!(!root.join(".treeward").exists());
+    }
+
+    #[test]
+    fn test_dry_run_reports_all_pending_writes() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::create_dir(root.join("dir")).unwrap();
+        fs::write(root.join("file1.txt"), "content1").unwrap();
+        fs::write(root.join("dir/file2.txt"), "content2").unwrap();
+
+        let options = WardOptions {
+            init: true,
+            fingerprint: None,
+            dry_run: true,
+        };
+
+        let result = ward_directory(root, options).unwrap();
+
+        let mut reported = result.ward_files_updated.clone();
+        reported.sort();
+        assert_eq!(
+            reported,
+            vec![PathBuf::from(".treeward"), PathBuf::from("dir/.treeward")]
+        );
+
+        assert!(!root.join(".treeward").exists());
+        assert!(!root.join("dir/.treeward").exists());
     }
 
     #[test]
