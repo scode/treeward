@@ -40,6 +40,13 @@ pub enum Command {
         #[arg(long)]
         verify: bool,
     },
+
+    /// Verify consistency of the ward, exit with success if no inconsistency.
+    Verify {
+        /// Directory to verify
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 impl Cli {
