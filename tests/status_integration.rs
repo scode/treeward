@@ -44,7 +44,7 @@ fn status_shows_added_files_and_fingerprint() {
         .failure()
         .stdout(predicate::str::contains("A new.txt"))
         .stdout(predicate::str::contains("Fingerprint:"))
-        .stderr(predicate::str::contains("Ward is not consistent"));
+        .stderr(predicate::str::is_empty());
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn status_verify_reports_modified_files() {
         .assert()
         .failure()
         .stdout(predicate::str::contains("M file.txt"))
-        .stderr(predicate::str::contains("Ward is not consistent"));
+        .stderr(predicate::str::is_empty());
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn status_default_uses_metadata_only_policy() {
         .assert()
         .failure()
         .stdout(predicate::str::contains("M? file.txt"))
-        .stderr(predicate::str::contains("Ward is not consistent"));
+        .stderr(predicate::str::is_empty());
 }
 
 #[test]
@@ -118,5 +118,5 @@ fn status_always_verify_reports_modified_files() {
         .assert()
         .failure()
         .stdout(predicate::str::contains("M file.txt"))
-        .stderr(predicate::str::contains("Ward is not consistent"));
+        .stderr(predicate::str::is_empty());
 }

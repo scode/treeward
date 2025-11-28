@@ -114,11 +114,6 @@ fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Re
         result.fingerprint
     );
 
-    error!(
-        "Ward is not consistent with the filesystem ({} changes detected)",
-        result.changes.len()
-    );
-
     Ok(WardExitCode::status_unclean())
 }
 
