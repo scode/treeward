@@ -20,7 +20,7 @@ fn status_reports_no_changes_after_initial_ward() {
         .arg(temp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("No changes detected"));
+        .stdout(predicate::str::is_empty());
 }
 
 #[test]
