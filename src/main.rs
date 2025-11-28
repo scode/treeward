@@ -90,7 +90,6 @@ fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Re
     let result = status::compute_status(&path, policy)?;
 
     if result.changes.is_empty() {
-        println!("No changes detected");
         return Ok(());
     }
 
