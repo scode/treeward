@@ -3,7 +3,12 @@ use std::path::PathBuf;
 
 /// File integrity tool for checksumming and verifying trees
 #[derive(Parser, Debug)]
-#[command(name = "treeward", version, about, long_about = None)]
+#[command(
+    name = "treeward",
+    about,
+    long_about = None,
+    disable_version_flag = true
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
