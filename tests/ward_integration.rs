@@ -67,10 +67,14 @@ fn ward_respects_fingerprint() {
 
     let status_output = cargo_bin_cmd!("treeward")
         .arg("status")
+        .arg("--verify")
         .arg(temp.path())
         .output()
         .unwrap();
-    assert!(status_output.status.success());
+    assert!(
+        !status_output.status.success(),
+        "status should fail so we can capture the fingerprint for pending changes"
+    );
     let output_str = String::from_utf8(status_output.stdout).unwrap();
     let fingerprint = extract_fingerprint(&output_str);
 

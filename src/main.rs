@@ -21,7 +21,11 @@ fn main() {
             fingerprint,
             dry_run,
         } => handle_ward(path, init, fingerprint, dry_run),
-        Command::Status { path, verify } => handle_status(path, verify),
+        Command::Status {
+            path,
+            verify,
+            always_verify,
+        } => handle_status(path, verify, always_verify),
         Command::Verify { path } => handle_verify(path),
     };
 
@@ -63,11 +67,13 @@ fn handle_ward(
     Ok(())
 }
 
-fn handle_status(path: PathBuf, verify: bool) -> anyhow::Result<()> {
-    let policy = if verify {
+fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Result<()> {
+    let policy = if always_verify {
         ChecksumPolicy::Always
-    } else {
+    } else if verify {
         ChecksumPolicy::WhenPossiblyModified
+    } else {
+        ChecksumPolicy::Never
     };
 
     let result = status::compute_status(&path, policy)?;
@@ -85,7 +91,10 @@ fn handle_status(path: PathBuf, verify: bool) -> anyhow::Result<()> {
         result.fingerprint
     );
 
-    Ok(())
+    anyhow::bail!(
+        "Ward is not consistent with the filesystem ({} changes detected)",
+        result.changes.len()
+    );
 }
 
 fn handle_verify(path: PathBuf) -> anyhow::Result<()> {

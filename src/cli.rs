@@ -36,9 +36,13 @@ pub enum Command {
         #[arg(value_name = "PATH", default_value = ".")]
         path: PathBuf,
 
-        /// Verify checksums for all files (detect silent corruption)
+        /// Verify checksums for files whose metadata changed
         #[arg(long)]
         verify: bool,
+
+        /// Always verify checksums for all files (detect silent corruption)
+        #[arg(long, conflicts_with = "verify")]
+        always_verify: bool,
     },
 
     /// Verify consistency of the ward, exit with success if no inconsistency.
