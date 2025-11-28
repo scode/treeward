@@ -97,7 +97,8 @@ fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Re
     print_changes(&result.changes);
 
     println!();
-    println!(
+    println!("Fingerprint: {}", result.fingerprint);
+    info!(
         "Run 'treeward ward --fingerprint {}' to accept these changes and update the ward.",
         result.fingerprint
     );

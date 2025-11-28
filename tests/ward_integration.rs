@@ -88,19 +88,9 @@ fn ward_respects_fingerprint() {
 }
 
 fn extract_fingerprint(output: &str) -> String {
-    let command_line = output
+    output
         .lines()
-        .find(|line| line.contains("--fingerprint"))
-        .expect("fingerprint not found in output");
-
-    let quoted_command = command_line
-        .split('\'')
-        .nth(1)
-        .expect("expected single-quoted command");
-
-    quoted_command
-        .split_whitespace()
-        .last()
-        .expect("missing fingerprint argument")
+        .find_map(|line| line.strip_prefix("Fingerprint: "))
+        .expect("fingerprint not found in output")
         .to_string()
 }

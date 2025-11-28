@@ -43,7 +43,7 @@ fn status_shows_added_files_and_fingerprint() {
         .assert()
         .failure()
         .stdout(predicate::str::contains("A new.txt"))
-        .stdout(predicate::str::contains("treeward ward --fingerprint"))
+        .stdout(predicate::str::contains("Fingerprint:"))
         .stderr(predicate::str::contains("Ward is not consistent"));
 }
 
