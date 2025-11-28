@@ -10,7 +10,7 @@ use status::ChecksumPolicy;
 use std::fmt as stdfmt;
 use std::io::{IsTerminal, stderr};
 use std::path::PathBuf;
-use std::process;
+use std::process::ExitCode;
 use tracing::{Event, Level, Subscriber, error, info};
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt as tracing_fmt;
@@ -20,12 +20,21 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
 use ward::{WardOptions, ward_directory};
 
-fn main() {
+struct WardExitCode;
+
+impl WardExitCode {
+    /// Exit code used when the ward status is unclean (differences found).
+    fn status_unclean() -> ExitCode {
+        ExitCode::from(1)
+    }
+}
+
+fn main() -> ExitCode {
     init_tracing();
 
     let cli = Cli::parse();
 
-    let result = match cli.command {
+    let result: anyhow::Result<ExitCode> = match cli.command {
         Command::Ward {
             path,
             init,
@@ -40,9 +49,12 @@ fn main() {
         Command::Verify { path } => handle_verify(path),
     };
 
-    if let Err(err) = result {
-        error!("{err}");
-        process::exit(1);
+    match result {
+        Ok(exit_code) => exit_code,
+        Err(err) => {
+            error!("{err}");
+            WardExitCode::status_unclean()
+        }
     }
 }
 
@@ -51,7 +63,7 @@ fn handle_ward(
     init: bool,
     fingerprint: Option<String>,
     dry_run: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ExitCode> {
     let options = WardOptions {
         init,
         fingerprint,
@@ -75,10 +87,10 @@ fn handle_ward(
         }
     }
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
-fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Result<()> {
+fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Result<ExitCode> {
     let policy = if always_verify {
         ChecksumPolicy::Always
     } else if verify {
@@ -90,7 +102,7 @@ fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Re
     let result = status::compute_status(&path, policy)?;
 
     if result.changes.is_empty() {
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
 
     print_changes(&result.changes);
@@ -102,18 +114,20 @@ fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Re
         result.fingerprint
     );
 
-    anyhow::bail!(
+    error!(
         "Ward is not consistent with the filesystem ({} changes detected)",
         result.changes.len()
     );
+
+    Ok(WardExitCode::status_unclean())
 }
 
-fn handle_verify(path: PathBuf) -> anyhow::Result<()> {
+fn handle_verify(path: PathBuf) -> anyhow::Result<ExitCode> {
     let result = status::compute_status(&path, ChecksumPolicy::Always)?;
 
     if result.changes.is_empty() {
         info!("Verification successful: No changes or corruption detected");
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
 
     print_changes(&result.changes);
