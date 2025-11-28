@@ -341,17 +341,21 @@ mod tests {
         let checksum1 = checksum_file(&root.join("file1.txt")).unwrap();
         let checksum2 = checksum_file(&root.join("dir1/file2.txt")).unwrap();
 
+        let metadata1 = std::fs::metadata(root.join("file1.txt")).unwrap();
+        let metadata2 = std::fs::metadata(root.join("dir1/file2.txt")).unwrap();
+
         let mut root_entries = BTreeMap::new();
         root_entries.insert(
             "file1.txt".to_string(),
             WardEntry::File {
                 sha256: checksum1.sha256.clone(),
-                mtime_nanos: checksum1
-                    .mtime
+                mtime_nanos: metadata1
+                    .modified()
+                    .unwrap()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .as_nanos() as u64,
-                size: checksum1.size,
+                size: metadata1.len(),
             },
         );
         root_entries.insert("dir1".to_string(), WardEntry::Dir {});
@@ -362,12 +366,13 @@ mod tests {
             "file2.txt".to_string(),
             WardEntry::File {
                 sha256: checksum2.sha256.clone(),
-                mtime_nanos: checksum2
-                    .mtime
+                mtime_nanos: metadata2
+                    .modified()
+                    .unwrap()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .as_nanos() as u64,
-                size: checksum2.size,
+                size: metadata2.len(),
             },
         );
         create_ward_file(&root.join("dir1"), dir1_entries);
@@ -476,6 +481,7 @@ mod tests {
 
         fs::write(root.join("file1.txt"), "content1").unwrap();
         let checksum = checksum_file(&root.join("file1.txt")).unwrap();
+        let metadata = std::fs::metadata(root.join("file1.txt")).unwrap();
 
         let mut entries = BTreeMap::new();
         entries.insert(
@@ -483,7 +489,7 @@ mod tests {
             WardEntry::File {
                 sha256: checksum.sha256,
                 mtime_nanos: 1000,
-                size: checksum.size,
+                size: metadata.len(),
             },
         );
         create_ward_file(root, entries);
@@ -525,6 +531,7 @@ mod tests {
 
         fs::write(root.join("file1.txt"), "content1").unwrap();
         let checksum = checksum_file(&root.join("file1.txt")).unwrap();
+        let metadata = std::fs::metadata(root.join("file1.txt")).unwrap();
 
         let mut entries = BTreeMap::new();
         entries.insert(
@@ -532,7 +539,7 @@ mod tests {
             WardEntry::File {
                 sha256: checksum.sha256,
                 mtime_nanos: 1000,
-                size: checksum.size,
+                size: metadata.len(),
             },
         );
         create_ward_file(root, entries);
@@ -583,6 +590,7 @@ mod tests {
         fs::write(root.join("file4.txt"), "new file").unwrap();
 
         let checksum1 = checksum_file(&root.join("file1.txt")).unwrap();
+        let metadata1 = std::fs::metadata(root.join("file1.txt")).unwrap();
 
         let mut entries = BTreeMap::new();
         entries.insert(
@@ -590,7 +598,7 @@ mod tests {
             WardEntry::File {
                 sha256: checksum1.sha256,
                 mtime_nanos: 1000,
-                size: checksum1.size,
+                size: metadata1.len(),
             },
         );
         entries.insert(
@@ -705,13 +713,15 @@ mod tests {
         dir2_entries.insert("dir3".to_string(), WardEntry::Dir {});
         create_ward_file(&root.join("dir1/dir2"), dir2_entries);
 
+        let metadata = std::fs::metadata(root.join("dir1/dir2/dir3/file.txt")).unwrap();
+
         let mut dir3_entries = BTreeMap::new();
         dir3_entries.insert(
             "file.txt".to_string(),
             WardEntry::File {
                 sha256: checksum.sha256,
                 mtime_nanos: 1000,
-                size: checksum.size,
+                size: metadata.len(),
             },
         );
         create_ward_file(&root.join("dir1/dir2/dir3"), dir3_entries);
@@ -791,6 +801,7 @@ mod tests {
 
         fs::write(root.join("file1.txt"), "original content").unwrap();
         let original_checksum = checksum_file(&root.join("file1.txt")).unwrap();
+        let original_metadata = std::fs::metadata(root.join("file1.txt")).unwrap();
 
         let mut entries = BTreeMap::new();
         entries.insert(
@@ -798,7 +809,7 @@ mod tests {
             WardEntry::File {
                 sha256: original_checksum.sha256.clone(),
                 mtime_nanos: 1000,
-                size: original_checksum.size,
+                size: original_metadata.len(),
             },
         );
         create_ward_file(root, entries);
@@ -842,8 +853,10 @@ mod tests {
 
         fs::write(root.join("file1.txt"), "content").unwrap();
         let checksum = checksum_file(&root.join("file1.txt")).unwrap();
-        let mtime_nanos = checksum
-            .mtime
+        let metadata = std::fs::metadata(root.join("file1.txt")).unwrap();
+        let mtime_nanos = metadata
+            .modified()
+            .unwrap()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
@@ -854,7 +867,7 @@ mod tests {
             WardEntry::File {
                 sha256: checksum.sha256,
                 mtime_nanos,
-                size: checksum.size,
+                size: metadata.len(),
             },
         );
         create_ward_file(root, entries);
@@ -869,9 +882,10 @@ mod tests {
         let root = temp.path();
 
         fs::write(root.join("file1.txt"), "content").unwrap();
-        let actual_checksum = checksum_file(&root.join("file1.txt")).unwrap();
-        let mtime_nanos = actual_checksum
-            .mtime
+        let metadata = std::fs::metadata(root.join("file1.txt")).unwrap();
+        let mtime_nanos = metadata
+            .modified()
+            .unwrap()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
@@ -882,7 +896,7 @@ mod tests {
             WardEntry::File {
                 sha256: "wrong_checksum_simulating_corruption".to_string(),
                 mtime_nanos,
-                size: actual_checksum.size,
+                size: metadata.len(),
             },
         );
         create_ward_file(root, entries);
@@ -900,8 +914,10 @@ mod tests {
 
         fs::write(root.join("file1.txt"), "content").unwrap();
         let checksum = checksum_file(&root.join("file1.txt")).unwrap();
-        let mtime_nanos = checksum
-            .mtime
+        let metadata = std::fs::metadata(root.join("file1.txt")).unwrap();
+        let mtime_nanos = metadata
+            .modified()
+            .unwrap()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
@@ -912,7 +928,7 @@ mod tests {
             WardEntry::File {
                 sha256: checksum.sha256,
                 mtime_nanos,
-                size: checksum.size,
+                size: metadata.len(),
             },
         );
         create_ward_file(root, entries);
@@ -928,6 +944,7 @@ mod tests {
 
         fs::write(root.join("file1.txt"), "content").unwrap();
         let checksum = checksum_file(&root.join("file1.txt")).unwrap();
+        let metadata = std::fs::metadata(root.join("file1.txt")).unwrap();
 
         let mut entries = BTreeMap::new();
         entries.insert(
@@ -935,7 +952,7 @@ mod tests {
             WardEntry::File {
                 sha256: checksum.sha256,
                 mtime_nanos: 1000,
-                size: checksum.size,
+                size: metadata.len(),
             },
         );
         create_ward_file(root, entries);

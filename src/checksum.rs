@@ -2,7 +2,6 @@ use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 #[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
@@ -19,8 +18,6 @@ pub enum ChecksumError {
 pub struct FileChecksum {
     /// Hex encoded.
     pub sha256: String,
-    pub mtime: SystemTime,
-    pub size: u64,
 }
 
 /// Computes the SHA-256 checksum of a file with concurrent modification detection.
@@ -47,7 +44,6 @@ pub fn checksum_file(path: &Path) -> Result<FileChecksum, ChecksumError> {
         }
     })?;
     let mtime_before = metadata_before.modified().map_err(ChecksumError::Io)?;
-    let size = metadata_before.len();
 
     let mut file = File::open(path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
@@ -77,11 +73,7 @@ pub fn checksum_file(path: &Path) -> Result<FileChecksum, ChecksumError> {
     let hash_bytes = hasher.finalize();
     let sha256 = format!("{:x}", hash_bytes);
 
-    Ok(FileChecksum {
-        sha256,
-        mtime: mtime_after,
-        size,
-    })
+    Ok(FileChecksum { sha256 })
 }
 
 #[cfg(test)]
@@ -102,7 +94,6 @@ mod tests {
             result.sha256,
             "315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3"
         );
-        assert_eq!(result.size, 13);
     }
 
     #[test]
@@ -115,7 +106,6 @@ mod tests {
             result.sha256,
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
-        assert_eq!(result.size, 0);
     }
 
     #[test]
@@ -128,7 +118,6 @@ mod tests {
 
         let result = checksum_file(temp_file.path()).unwrap();
 
-        assert_eq!(result.size, 1024 * 1024);
         assert_eq!(result.sha256.len(), 64);
     }
 
