@@ -379,4 +379,81 @@ mod tests {
             assert_eq!(symlink_target, &PathBuf::from("/some/target"));
         }
     }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_symlink_cycle_self_referential() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create a self-referential symlink: link -> link
+        std::os::unix::fs::symlink("self", root.join("self")).unwrap();
+
+        // list_directory should succeed because symlinks are not followed
+        let entries = list_directory(root).unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert!(entries.contains_key("self"));
+        let entry = entries.get("self").unwrap();
+        match entry {
+            FsEntry::Symlink { symlink_target } => {
+                assert_eq!(symlink_target, &PathBuf::from("self"));
+            }
+            _ => panic!("Expected Symlink entry"),
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_symlink_cycle_mutual() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create mutual symlinks: a -> b, b -> a
+        std::os::unix::fs::symlink("b", root.join("a")).unwrap();
+        std::os::unix::fs::symlink("a", root.join("b")).unwrap();
+
+        // list_directory should succeed because symlinks are not followed
+        let entries = list_directory(root).unwrap();
+
+        assert_eq!(entries.len(), 2);
+
+        assert!(entries.contains_key("a"));
+        match entries.get("a").unwrap() {
+            FsEntry::Symlink { symlink_target } => {
+                assert_eq!(symlink_target, &PathBuf::from("b"));
+            }
+            _ => panic!("Expected Symlink entry for 'a'"),
+        }
+
+        assert!(entries.contains_key("b"));
+        match entries.get("b").unwrap() {
+            FsEntry::Symlink { symlink_target } => {
+                assert_eq!(symlink_target, &PathBuf::from("a"));
+            }
+            _ => panic!("Expected Symlink entry for 'b'"),
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_symlink_to_parent_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        fs::create_dir(root.join("subdir")).unwrap();
+        // Create a symlink in subdir pointing to parent (would cause cycle if followed)
+        std::os::unix::fs::symlink("..", root.join("subdir/parent")).unwrap();
+
+        let entries = list_directory(&root.join("subdir")).unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert!(entries.contains_key("parent"));
+        match entries.get("parent").unwrap() {
+            FsEntry::Symlink { symlink_target } => {
+                assert_eq!(symlink_target, &PathBuf::from(".."));
+            }
+            _ => panic!("Expected Symlink entry"),
+        }
+    }
 }
