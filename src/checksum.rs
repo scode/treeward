@@ -171,8 +171,4 @@ mod tests {
             _ => panic!("Expected PermissionDenied error for permission denied"),
         }
     }
-
-    // TODO(pschuller): Ensure we have test coverage of concurrent
-    // modification. Either through appropriate dependency injection
-    // or through higher level non-deterministic test.
 }
