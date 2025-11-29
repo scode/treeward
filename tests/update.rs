@@ -4,21 +4,6 @@ use std::fs;
 use tempfile::TempDir;
 
 #[test]
-fn init_creates_ward_files() {
-    let temp = TempDir::new().unwrap();
-    fs::write(temp.path().join("file.txt"), "hello").unwrap();
-
-    cargo_bin_cmd!("treeward")
-        .arg("init")
-        .arg(temp.path())
-        .assert()
-        .success()
-        .stdout(predicate::str::is_empty());
-
-    assert!(temp.path().join(".treeward").exists());
-}
-
-#[test]
 fn update_without_init_fails() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
@@ -29,22 +14,6 @@ fn update_without_init_fails() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("Not initialized"));
-}
-
-#[test]
-fn init_dry_run_skips_writes() {
-    let temp = TempDir::new().unwrap();
-    fs::write(temp.path().join("file.txt"), "hello").unwrap();
-
-    cargo_bin_cmd!("treeward")
-        .arg("init")
-        .arg(temp.path())
-        .arg("--dry-run")
-        .assert()
-        .success()
-        .stdout(predicate::str::is_empty());
-
-    assert!(!temp.path().join(".treeward").exists());
 }
 
 #[test]
@@ -82,6 +51,35 @@ fn update_respects_fingerprint() {
         .assert()
         .success()
         .stdout(predicate::str::is_empty());
+}
+
+#[test]
+fn update_dry_run_skips_writes() {
+    let temp = TempDir::new().unwrap();
+    let file_path = temp.path().join("file.txt");
+    fs::write(&file_path, "hello").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("init")
+        .arg(temp.path())
+        .assert()
+        .success();
+
+    let ward_path = temp.path().join(".treeward");
+    let before = fs::metadata(&ward_path).unwrap().modified().unwrap();
+
+    fs::write(&file_path, "changed").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("update")
+        .arg(temp.path())
+        .arg("--dry-run")
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    let after = fs::metadata(&ward_path).unwrap().modified().unwrap();
+    assert_eq!(before, after, "dry run should not rewrite ward files");
 }
 
 fn extract_fingerprint(output: &str) -> String {
