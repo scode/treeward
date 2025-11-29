@@ -82,6 +82,22 @@ fn update_dry_run_skips_writes() {
     assert_eq!(before, after, "dry run should not rewrite ward files");
 }
 
+#[test]
+fn update_allow_init_initializes_when_missing() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("update")
+        .arg(temp.path())
+        .arg("--allow-init")
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    assert!(temp.path().join(".treeward").exists());
+}
+
 fn extract_fingerprint(output: &str) -> String {
     output
         .lines()

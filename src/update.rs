@@ -28,6 +28,7 @@ pub enum WardError {
 #[allow(dead_code)]
 pub struct WardOptions {
     pub init: bool,
+    pub allow_init: bool,
     pub fingerprint: Option<String>,
     pub dry_run: bool,
 }
@@ -94,11 +95,11 @@ pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, W
 
     let ward_path = root.join(".treeward");
 
-    if !options.init && !ward_path.exists() {
+    if !options.init && !options.allow_init && !ward_path.exists() {
         return Err(WardError::NotInitialized);
     }
 
-    if options.init && ward_path.exists() {
+    if options.init && !options.allow_init && ward_path.exists() {
         return Err(WardError::AlreadyInitialized);
     }
 
@@ -252,6 +253,7 @@ mod tests {
 
         let options = WardOptions {
             init: true,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -279,6 +281,7 @@ mod tests {
 
         let options = WardOptions {
             init: false,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -301,6 +304,7 @@ mod tests {
 
         let init_options = WardOptions {
             init: true,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -311,6 +315,7 @@ mod tests {
 
         let update_options = WardOptions {
             init: true,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -331,6 +336,7 @@ mod tests {
 
         let init_options = WardOptions {
             init: true,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -343,6 +349,7 @@ mod tests {
 
         let options = WardOptions {
             init: false,
+            allow_init: false,
             fingerprint: Some(status.fingerprint.clone()),
             dry_run: false,
         };
@@ -360,6 +367,7 @@ mod tests {
 
         let init_options = WardOptions {
             init: true,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -370,6 +378,7 @@ mod tests {
 
         let options = WardOptions {
             init: false,
+            allow_init: false,
             fingerprint: Some("wrong_fingerprint".to_string()),
             dry_run: false,
         };
@@ -397,6 +406,7 @@ mod tests {
 
         let options = WardOptions {
             init: true,
+            allow_init: false,
             fingerprint: None,
             dry_run: true,
         };
@@ -420,6 +430,7 @@ mod tests {
 
         let options = WardOptions {
             init: true,
+            allow_init: false,
             fingerprint: None,
             dry_run: true,
         };
@@ -449,6 +460,7 @@ mod tests {
 
         let init_options = WardOptions {
             init: true,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -464,6 +476,7 @@ mod tests {
 
         let update_options = WardOptions {
             init: false,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -511,6 +524,7 @@ mod tests {
 
         let options = WardOptions {
             init: true,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -547,6 +561,7 @@ mod tests {
 
         let init_options = WardOptions {
             init: true,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -559,6 +574,7 @@ mod tests {
 
         let update_options = WardOptions {
             init: false,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -576,6 +592,7 @@ mod tests {
 
         let options = WardOptions {
             init: true,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -601,6 +618,7 @@ mod tests {
 
         let init_options = WardOptions {
             init: true,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
@@ -612,6 +630,7 @@ mod tests {
 
         let options = WardOptions {
             init: false,
+            allow_init: false,
             fingerprint: None,
             dry_run: false,
         };
