@@ -139,3 +139,69 @@ fn extract_fingerprint(output: &str) -> String {
         .expect("fingerprint not found in output")
         .to_string()
 }
+
+/// Verifies that `update --allow-init` is idempotent: running it multiple times
+/// on unchanged files produces the same result and doesn't modify ward files.
+#[test]
+fn update_allow_init_is_idempotent() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+    fs::create_dir(temp.path().join("subdir")).unwrap();
+    fs::write(temp.path().join("subdir/nested.txt"), "world").unwrap();
+
+    // First run: initializes ward files
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("update")
+        .arg("--allow-init")
+        .assert()
+        .success();
+
+    let ward_content_1 = fs::read_to_string(temp.path().join(".treeward")).unwrap();
+    let subdir_ward_content_1 = fs::read_to_string(temp.path().join("subdir/.treeward")).unwrap();
+
+    // Second run: should succeed and produce identical ward files
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("update")
+        .arg("--allow-init")
+        .assert()
+        .success();
+
+    let ward_content_2 = fs::read_to_string(temp.path().join(".treeward")).unwrap();
+    let subdir_ward_content_2 = fs::read_to_string(temp.path().join("subdir/.treeward")).unwrap();
+
+    assert_eq!(
+        ward_content_1, ward_content_2,
+        "ward file content should be identical after idempotent update"
+    );
+    assert_eq!(
+        subdir_ward_content_1, subdir_ward_content_2,
+        "subdir ward file content should be identical after idempotent update"
+    );
+
+    // Third run: still idempotent
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("update")
+        .arg("--allow-init")
+        .assert()
+        .success();
+
+    let ward_content_3 = fs::read_to_string(temp.path().join(".treeward")).unwrap();
+    assert_eq!(
+        ward_content_1, ward_content_3,
+        "ward file content should remain identical after third run"
+    );
+
+    // Verify status shows no changes
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("verify")
+        .assert()
+        .success();
+}
