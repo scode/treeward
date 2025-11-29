@@ -37,14 +37,15 @@ fn main() -> ExitCode {
     let result: anyhow::Result<ExitCode> = match cli.command {
         Command::Update {
             path,
+            allow_init,
             fingerprint,
             dry_run,
-        } => handle_ward(path, false, fingerprint, dry_run),
+        } => handle_ward(path, false, allow_init, fingerprint, dry_run),
         Command::Init {
             path,
             fingerprint,
             dry_run,
-        } => handle_ward(path, true, fingerprint, dry_run),
+        } => handle_ward(path, true, false, fingerprint, dry_run),
         Command::Status {
             path,
             verify,
@@ -65,11 +66,13 @@ fn main() -> ExitCode {
 fn handle_ward(
     path: PathBuf,
     init: bool,
+    allow_init: bool,
     fingerprint: Option<String>,
     dry_run: bool,
 ) -> anyhow::Result<ExitCode> {
     let options = WardOptions {
         init,
+        allow_init,
         fingerprint,
         dry_run,
     };

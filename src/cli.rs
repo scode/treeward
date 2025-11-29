@@ -22,6 +22,10 @@ pub enum Command {
         #[arg(value_name = "PATH", default_value = ".")]
         path: PathBuf,
 
+        /// Allow initialization if ward files are missing
+        #[arg(long)]
+        allow_init: bool,
+
         /// Only proceed if changes match this fingerprint from status
         #[arg(long, value_name = "FINGERPRINT")]
         fingerprint: Option<String>,
