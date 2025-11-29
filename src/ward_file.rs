@@ -16,7 +16,6 @@ pub enum WardFileError {
     UnsupportedVersion(u32),
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
 pub enum WardEntry {
@@ -34,7 +33,6 @@ pub enum WardEntry {
     Symlink { symlink_target: PathBuf },
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Metadata {
@@ -50,7 +48,6 @@ struct MetadataOnly {
     metadata: Metadata,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WardFile {
@@ -58,7 +55,6 @@ pub struct WardFile {
     pub entries: BTreeMap<String, WardEntry>,
 }
 
-#[allow(dead_code)]
 impl WardFile {
     const SUPPORTED_VERSION: u32 = 1;
 

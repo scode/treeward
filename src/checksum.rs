@@ -3,7 +3,6 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-#[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
 pub enum ChecksumError {
     #[error("IO error: {0}")]
@@ -14,7 +13,6 @@ pub enum ChecksumError {
     ConcurrentModification(PathBuf),
 }
 
-#[allow(dead_code)]
 pub struct FileChecksum {
     /// Hex encoded.
     pub sha256: String,
@@ -38,7 +36,6 @@ pub struct FileChecksum {
 /// - `ChecksumError::ConcurrentModification`: File was detected as being modified while
 ///   checksumming. Note that the absence of this error is *not* a guarantee that the
 ///   file was *not* modified.
-#[allow(dead_code)]
 pub fn checksum_file(path: &Path) -> Result<FileChecksum, ChecksumError> {
     let metadata_before = std::fs::metadata(path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::PermissionDenied {

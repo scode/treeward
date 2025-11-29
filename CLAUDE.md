@@ -179,4 +179,3 @@ When implementing recursive operations:
 
 - Do not add trivial inline comments (see AGENTS.md)
 - Only add comments for non-obvious logic or to explain "why" not "what"
-- Use `#[allow(dead_code)]` for items not yet wired into CLI

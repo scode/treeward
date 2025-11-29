@@ -30,7 +30,6 @@ pub enum WardError {
     FingerprintMismatch { expected: String, actual: String },
 }
 
-#[allow(dead_code)]
 pub struct WardOptions {
     pub init: bool,
     pub allow_init: bool,
@@ -38,7 +37,6 @@ pub struct WardOptions {
     pub dry_run: bool,
 }
 
-#[allow(dead_code)]
 pub struct WardResult {
     pub files_warded: usize,
     pub ward_files_updated: Vec<PathBuf>,
@@ -89,7 +87,6 @@ pub struct WardResult {
 /// * `files_warded` - Number of files that were added or had content changes (excludes files
 ///   that were checksummed but found to be unchanged, and excludes directories/symlinks)
 /// * `ward_files_updated` - Relative paths of `.treeward` files that were written
-#[allow(dead_code)]
 pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, WardError> {
     let root = root.canonicalize().map_err(|e| {
         if e.kind() == ErrorKind::PermissionDenied {

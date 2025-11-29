@@ -20,7 +20,6 @@ pub enum StatusError {
     Other(String),
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusType {
     Added,
@@ -70,7 +69,6 @@ pub enum StatusType {
 /// - `Unchanged`: Entry exists in both and matches. The `ward_entry` contains the
 ///   current entry data (if `WardUpdate` purpose), which may have updated metadata
 ///   even if content is unchanged.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatusEntry {
     Added {
@@ -93,7 +91,6 @@ pub enum StatusEntry {
     },
 }
 
-#[allow(dead_code)]
 impl StatusEntry {
     pub fn path(&self) -> &Path {
         match self {
@@ -126,7 +123,6 @@ impl StatusEntry {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChecksumPolicy {
     /// Never compute checksums. Files with differing metadata will be
@@ -147,7 +143,6 @@ pub enum ChecksumPolicy {
 ///
 /// This is orthogonal to `ChecksumPolicy` - the policy controls *when* checksums
 /// are computed, while purpose controls *whether* to populate `ward_entry` fields.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusPurpose {
     /// Display status to user.
@@ -174,7 +169,6 @@ pub enum StatusPurpose {
     WardUpdate,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusMode {
     /// Only include files with interesting changes (added, removed, modified, possibly modified)
@@ -184,7 +178,6 @@ pub enum StatusMode {
     All,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusResult {
     pub statuses: Vec<StatusEntry>,
@@ -238,7 +231,6 @@ pub struct StatusResult {
 /// * Ward files are corrupted or have unsupported versions
 /// * Permission denied accessing files or directories
 /// * File modified during checksumming
-#[allow(dead_code)]
 pub fn compute_status(
     root: &Path,
     policy: ChecksumPolicy,
@@ -597,7 +589,6 @@ fn compute_fingerprint(statuses: &[StatusEntry]) -> String {
 /// # Errors
 ///
 /// Returns error if a path cannot be parsed or converted.
-#[allow(dead_code)]
 pub fn build_ward_files(
     root: &Path,
     status_result: &StatusResult,
