@@ -308,10 +308,13 @@ fn walk_directory(
 }
 
 fn mtime_to_nanos(mtime: &std::time::SystemTime) -> Result<u64, StatusError> {
-    mtime
+    let nanos = mtime
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .map_err(|_| StatusError::Other("mtime is before UNIX epoch".to_string()))
+        .map_err(|_| StatusError::Other("mtime is before UNIX epoch".to_string()))?
+        .as_nanos();
+    nanos.try_into().map_err(|_| {
+        StatusError::Other("timestamp overflow: nanoseconds exceeds u64 range".to_string())
+    })
 }
 
 fn build_ward_entry_from_fs(
