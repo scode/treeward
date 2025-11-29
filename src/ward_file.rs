@@ -105,16 +105,42 @@ impl WardFile {
         Self::from_toml(&content)
     }
 
-    /// Save a WardFile to the filesystem
+    /// Save a WardFile to the filesystem atomically.
+    ///
+    /// Writes to a temporary file, fsyncs it, then atomically renames it into place.
     pub fn save(&self, path: &Path) -> Result<(), WardFileError> {
+        use std::io::Write;
+
         let content = self.to_toml()?;
-        std::fs::write(path, content).map_err(|e| {
+
+        let parent = path.parent().unwrap_or(Path::new("."));
+
+        let mut temp_file = tempfile::NamedTempFile::new_in(parent).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                WardFileError::PermissionDenied(parent.to_path_buf())
+            } else {
+                WardFileError::Io(e)
+            }
+        })?;
+
+        temp_file.write_all(content.as_bytes()).map_err(|e| {
             if e.kind() == std::io::ErrorKind::PermissionDenied {
                 WardFileError::PermissionDenied(path.to_path_buf())
             } else {
                 WardFileError::Io(e)
             }
         })?;
+
+        temp_file.as_file().sync_all().map_err(WardFileError::Io)?;
+
+        temp_file.persist(path).map_err(|e| {
+            if e.error.kind() == std::io::ErrorKind::PermissionDenied {
+                WardFileError::PermissionDenied(path.to_path_buf())
+            } else {
+                WardFileError::Io(e.error)
+            }
+        })?;
+
         Ok(())
     }
 }
