@@ -30,15 +30,7 @@ pub enum FsEntry {
 }
 
 pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListError> {
-    let root = root.canonicalize().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::PermissionDenied {
-            DirListError::PermissionDenied(root.to_path_buf())
-        } else {
-            DirListError::Io(e)
-        }
-    })?;
-
-    let read_dir = std::fs::read_dir(&root).map_err(|e| {
+    let read_dir = std::fs::read_dir(root).map_err(|e| {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
             DirListError::PermissionDenied(root.to_path_buf())
         } else {

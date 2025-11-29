@@ -104,10 +104,8 @@ fn handle_ward(
 
     if !result.ward_files_updated.is_empty() {
         info!("Updated {} ward files:", result.ward_files_updated.len());
-        let root = path.canonicalize().unwrap_or(path.clone());
-
         for ward_path in result.ward_files_updated {
-            info!("  {}", root.join(ward_path).display());
+            info!("  {}", ward_path.display());
         }
     }
 
