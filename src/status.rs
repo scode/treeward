@@ -74,27 +74,27 @@ pub enum StatusType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatusEntry {
     Added {
-        path: PathBuf,
+        path: String,
         ward_entry: Option<WardEntry>,
     },
     Removed {
-        path: PathBuf,
+        path: String,
     },
     Modified {
-        path: PathBuf,
+        path: String,
         ward_entry: Option<WardEntry>,
     },
     PossiblyModified {
-        path: PathBuf,
+        path: String,
     },
     Unchanged {
-        path: PathBuf,
+        path: String,
         ward_entry: Option<WardEntry>,
     },
 }
 
 impl StatusEntry {
-    pub fn path(&self) -> &Path {
+    pub fn path(&self) -> &str {
         match self {
             StatusEntry::Added { path, .. } => path,
             StatusEntry::Removed { path } => path,
@@ -253,7 +253,7 @@ pub fn compute_status(
 
     statuses.sort_by(|a, b| a.path().cmp(b.path()));
 
-    let fingerprint = compute_fingerprint(&statuses)?;
+    let fingerprint = compute_fingerprint(&statuses);
 
     Ok(StatusResult {
         statuses,
@@ -350,7 +350,7 @@ fn compare_entries(
 ) -> Result<(), StatusError> {
     for name in fs_entries.keys() {
         if !ward_entries.contains_key(name) {
-            let relative_path = current_dir.strip_prefix(tree_root)?.join(name);
+            let relative_path = make_relative_path(tree_root, current_dir, name)?;
             let fs_entry = &fs_entries[name];
 
             let ward_entry = if purpose == StatusPurpose::WardUpdate {
@@ -368,7 +368,7 @@ fn compare_entries(
 
     for name in ward_entries.keys() {
         if !fs_entries.contains_key(name) {
-            let relative_path = current_dir.strip_prefix(tree_root)?.join(name);
+            let relative_path = make_relative_path(tree_root, current_dir, name)?;
             statuses.push(StatusEntry::Removed {
                 path: relative_path,
             });
@@ -417,7 +417,7 @@ fn check_modification(
     mode: StatusMode,
     purpose: StatusPurpose,
 ) -> Result<(), StatusError> {
-    let relative_path = current_dir.strip_prefix(tree_root)?.join(name);
+    let relative_path = make_relative_path(tree_root, current_dir, name)?;
     let absolute_path = current_dir.join(name);
 
     match (ward_entry, fs_entry) {
@@ -557,7 +557,20 @@ fn path_to_str(path: &Path) -> Result<&str, StatusError> {
         .ok_or_else(|| StatusError::Other(format!("non-UTF-8 path not supported: {:?}", path)))
 }
 
-fn compute_fingerprint(statuses: &[StatusEntry]) -> Result<String, StatusError> {
+/// Constructs a relative path string from tree_root, current_dir, and entry name.
+///
+/// Returns the path as a validated UTF-8 String suitable for use in StatusEntry.
+fn make_relative_path(
+    tree_root: &Path,
+    current_dir: &Path,
+    name: &str,
+) -> Result<String, StatusError> {
+    let relative_dir = current_dir.strip_prefix(tree_root)?;
+    let relative_path = relative_dir.join(name);
+    path_to_str(&relative_path).map(|s| s.to_string())
+}
+
+fn compute_fingerprint(statuses: &[StatusEntry]) -> String {
     let mut hasher = Sha256::new();
 
     for entry in statuses {
@@ -565,7 +578,7 @@ fn compute_fingerprint(statuses: &[StatusEntry]) -> Result<String, StatusError> 
             continue;
         }
 
-        hasher.update(path_to_str(entry.path())?.as_bytes());
+        hasher.update(entry.path().as_bytes());
         hasher.update(b"|");
 
         let status_type_str = match entry.status_type() {
@@ -580,7 +593,7 @@ fn compute_fingerprint(statuses: &[StatusEntry]) -> Result<String, StatusError> 
     }
 
     let hash_bytes = hasher.finalize();
-    Ok(base64::engine::general_purpose::STANDARD.encode(hash_bytes))
+    base64::engine::general_purpose::STANDARD.encode(hash_bytes)
 }
 
 /// Build WardFile objects from a StatusResult.
@@ -617,17 +630,18 @@ pub fn build_ward_files(
     for entry in &status_result.statuses {
         match entry.ward_entry() {
             Some(ward_entry) => {
-                let parent_dir = root.join(entry.path().parent().unwrap_or(Path::new("")));
-                let filename = entry
-                    .path()
+                let entry_path = Path::new(entry.path());
+                let parent_dir = root.join(entry_path.parent().unwrap_or(Path::new("")));
+                let filename = entry_path
                     .file_name()
                     .ok_or_else(|| {
                         StatusError::DirList(DirListError::Io(std::io::Error::new(
                             ErrorKind::InvalidInput,
-                            format!("Path has no filename: {}", entry.path().display()),
+                            format!("Path has no filename: {}", entry.path()),
                         )))
                     })?
-                    .to_string_lossy()
+                    .to_str()
+                    .expect("path is already validated as UTF-8")
                     .to_string();
 
                 dir_entries
@@ -636,7 +650,7 @@ pub fn build_ward_files(
                     .insert(filename, ward_entry.clone());
 
                 if matches!(ward_entry, WardEntry::Dir {}) {
-                    let dir_path = root.join(entry.path());
+                    let dir_path = root.join(entry_path);
                     dir_entries.entry(dir_path).or_default();
                 }
             }
@@ -644,7 +658,7 @@ pub fn build_ward_files(
                 if !matches!(entry, StatusEntry::Removed { .. }) {
                     return Err(StatusError::Other(format!(
                         "missing ward_entry for non-Removed status: {}",
-                        entry.path().display()
+                        entry.path()
                     )));
                 }
             }
@@ -762,7 +776,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
-        assert_eq!(result.statuses[0].path(), PathBuf::from("file1.txt"));
+        assert_eq!(result.statuses[0].path(), "file1.txt");
         assert_eq!(result.statuses[0].status_type(), StatusType::Added);
     }
 
@@ -785,13 +799,9 @@ mod tests {
         .unwrap();
         assert_eq!(result.statuses.len(), 2);
 
-        let paths: Vec<PathBuf> = result
-            .statuses
-            .iter()
-            .map(|c| c.path().to_path_buf())
-            .collect();
-        assert!(paths.contains(&PathBuf::from("dir1")));
-        assert!(paths.contains(&PathBuf::from("dir1/file1.txt")));
+        let paths: Vec<&str> = result.statuses.iter().map(|c| c.path()).collect();
+        assert!(paths.contains(&"dir1"));
+        assert!(paths.contains(&"dir1/file1.txt"));
 
         for change in &result.statuses {
             assert_eq!(change.status_type(), StatusType::Added);
@@ -822,7 +832,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
-        assert_eq!(result.statuses[0].path(), PathBuf::from("file1.txt"));
+        assert_eq!(result.statuses[0].path(), "file1.txt");
         assert_eq!(result.statuses[0].status_type(), StatusType::Removed);
     }
 
@@ -859,7 +869,7 @@ mod tests {
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
 
-        assert_eq!(result.statuses[0].path(), PathBuf::from("dir1"));
+        assert_eq!(result.statuses[0].path(), "dir1");
         assert_eq!(result.statuses[0].status_type(), StatusType::Removed);
     }
 
@@ -891,7 +901,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
-        assert_eq!(result.statuses[0].path(), PathBuf::from("file1.txt"));
+        assert_eq!(result.statuses[0].path(), "file1.txt");
         assert_eq!(
             result.statuses[0].status_type(),
             StatusType::PossiblyModified
@@ -924,7 +934,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
-        assert_eq!(result.statuses[0].path(), PathBuf::from("file1.txt"));
+        assert_eq!(result.statuses[0].path(), "file1.txt");
         assert_eq!(result.statuses[0].status_type(), StatusType::Modified);
     }
 
@@ -1054,38 +1064,21 @@ mod tests {
         .unwrap();
         assert_eq!(result.statuses.len(), 3);
 
-        let change_types: BTreeMap<PathBuf, StatusType> = result
+        let change_types: BTreeMap<&str, StatusType> = result
             .statuses
             .iter()
-            .map(|c| (c.path().to_path_buf(), c.status_type()))
+            .map(|c| (c.path(), c.status_type()))
             .collect();
 
         assert_eq!(
-            change_types.get(&PathBuf::from("file1.txt")),
+            change_types.get("file1.txt"),
             Some(&StatusType::PossiblyModified)
         );
-        assert_eq!(
-            change_types.get(&PathBuf::from("file2.txt")),
-            Some(&StatusType::Removed)
-        );
-        assert_eq!(
-            change_types.get(&PathBuf::from("file4.txt")),
-            Some(&StatusType::Added)
-        );
+        assert_eq!(change_types.get("file2.txt"), Some(&StatusType::Removed));
+        assert_eq!(change_types.get("file4.txt"), Some(&StatusType::Added));
 
-        let paths: Vec<PathBuf> = result
-            .statuses
-            .iter()
-            .map(|c| c.path().to_path_buf())
-            .collect();
-        assert_eq!(
-            paths,
-            vec![
-                PathBuf::from("file1.txt"),
-                PathBuf::from("file2.txt"),
-                PathBuf::from("file4.txt")
-            ]
-        );
+        let paths: Vec<&str> = result.statuses.iter().map(|c| c.path()).collect();
+        assert_eq!(paths, vec!["file1.txt", "file2.txt", "file4.txt"]);
     }
 
     #[test]
@@ -1131,10 +1124,7 @@ mod tests {
         )
         .unwrap();
 
-        let link_change = result
-            .statuses
-            .iter()
-            .find(|c| c.path() == PathBuf::from("link"));
+        let link_change = result.statuses.iter().find(|c| c.path() == "link");
         assert!(link_change.is_some());
         assert_eq!(link_change.unwrap().status_type(), StatusType::Modified);
     }
@@ -1187,7 +1177,7 @@ mod tests {
         let file_change = result
             .statuses
             .iter()
-            .find(|c| c.path() == PathBuf::from("dir1/dir2/dir3/file.txt"));
+            .find(|c| c.path() == "dir1/dir2/dir3/file.txt");
         assert!(file_change.is_some());
         assert_eq!(
             file_change.unwrap().status_type(),
@@ -1254,10 +1244,7 @@ mod tests {
         )
         .unwrap();
 
-        let item_change = result
-            .statuses
-            .iter()
-            .find(|c| c.path() == PathBuf::from("item"));
+        let item_change = result.statuses.iter().find(|c| c.path() == "item");
         assert!(item_change.is_some());
         assert_eq!(item_change.unwrap().status_type(), StatusType::Modified);
     }
@@ -1292,7 +1279,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
-        assert_eq!(result.statuses[0].path(), PathBuf::from("file1.txt"));
+        assert_eq!(result.statuses[0].path(), "file1.txt");
         assert_eq!(
             result.statuses[0].status_type(),
             StatusType::PossiblyModified
@@ -1325,7 +1312,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
-        assert_eq!(result.statuses[0].path(), PathBuf::from("file1.txt"));
+        assert_eq!(result.statuses[0].path(), "file1.txt");
         assert_eq!(result.statuses[0].status_type(), StatusType::Modified);
     }
 
@@ -1398,7 +1385,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
-        assert_eq!(result.statuses[0].path(), PathBuf::from("file1.txt"));
+        assert_eq!(result.statuses[0].path(), "file1.txt");
         assert_eq!(result.statuses[0].status_type(), StatusType::Modified);
     }
 
@@ -1523,13 +1510,9 @@ mod tests {
             assert_eq!(change.status_type(), StatusType::Unchanged);
         }
 
-        let paths: Vec<PathBuf> = result
-            .statuses
-            .iter()
-            .map(|c| c.path().to_path_buf())
-            .collect();
-        assert!(paths.contains(&PathBuf::from("file1.txt")));
-        assert!(paths.contains(&PathBuf::from("file2.txt")));
+        let paths: Vec<&str> = result.statuses.iter().map(|c| c.path()).collect();
+        assert!(paths.contains(&"file1.txt"));
+        assert!(paths.contains(&"file2.txt"));
     }
 
     #[test]
@@ -1586,28 +1569,22 @@ mod tests {
         .unwrap();
         assert_eq!(result.statuses.len(), 4);
 
-        let change_types: BTreeMap<PathBuf, StatusType> = result
+        let change_types: BTreeMap<&str, StatusType> = result
             .statuses
             .iter()
-            .map(|c| (c.path().to_path_buf(), c.status_type()))
+            .map(|c| (c.path(), c.status_type()))
             .collect();
 
         assert_eq!(
-            change_types.get(&PathBuf::from("unchanged.txt")),
+            change_types.get("unchanged.txt"),
             Some(&StatusType::Unchanged)
         );
         assert_eq!(
-            change_types.get(&PathBuf::from("modified.txt")),
+            change_types.get("modified.txt"),
             Some(&StatusType::PossiblyModified)
         );
-        assert_eq!(
-            change_types.get(&PathBuf::from("added.txt")),
-            Some(&StatusType::Added)
-        );
-        assert_eq!(
-            change_types.get(&PathBuf::from("removed.txt")),
-            Some(&StatusType::Removed)
-        );
+        assert_eq!(change_types.get("added.txt"), Some(&StatusType::Added));
+        assert_eq!(change_types.get("removed.txt"), Some(&StatusType::Removed));
     }
 
     #[test]
