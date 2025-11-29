@@ -1700,4 +1700,43 @@ mod tests {
             err_msg
         );
     }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_symlink_cycle_does_not_cause_infinite_loop() {
+        use std::os::unix;
+
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::create_dir(root.join("dir")).unwrap();
+        fs::write(root.join("dir/file.txt"), "content").unwrap();
+        // Symlink pointing back to parent - would cause infinite loop if followed
+        unix::fs::symlink("..", root.join("dir/parent_link")).unwrap();
+        // Self-referential symlink
+        unix::fs::symlink("self", root.join("self")).unwrap();
+        // Mutual symlinks
+        unix::fs::symlink("b", root.join("a")).unwrap();
+        unix::fs::symlink("a", root.join("b")).unwrap();
+
+        create_ward_file(root, BTreeMap::new());
+
+        // This should complete without hanging
+        let result = compute_status(
+            root,
+            ChecksumPolicy::Never,
+            StatusMode::Interesting,
+            StatusPurpose::Display,
+        );
+
+        assert!(result.is_ok());
+        let status = result.unwrap();
+
+        // Verify symlinks are tracked as added entries
+        let paths: Vec<_> = status.statuses.iter().map(|s| s.path()).collect();
+        assert!(paths.iter().any(|p| p.ends_with("self")));
+        assert!(paths.iter().any(|p| p.ends_with("a")));
+        assert!(paths.iter().any(|p| p.ends_with("b")));
+        assert!(paths.iter().any(|p| p.ends_with("parent_link")));
+    }
 }
