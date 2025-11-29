@@ -251,7 +251,7 @@ pub fn compute_status(
 
     statuses.sort_by(|a, b| a.path().cmp(b.path()));
 
-    let fingerprint = compute_fingerprint(&statuses);
+    let fingerprint = compute_fingerprint(&statuses)?;
 
     Ok(StatusResult {
         statuses,
@@ -538,7 +538,24 @@ fn check_modification(
     Ok(())
 }
 
-fn compute_fingerprint(statuses: &[StatusEntry]) -> String {
+/// Converts a path to a UTF-8 string, returning an error if the path contains
+/// non-UTF-8 bytes.
+///
+/// Non-UTF-8 paths are unsupported because handling them portably is complex:
+/// Unix paths are arbitrary byte sequences (except NUL), while Windows paths
+/// are UTF-16 (potentially unpaired surrogates). Using lossy conversion would
+/// risk fingerprint collisions where different invalid paths map to the same
+/// replacement characters. Platform-specific raw byte access (OsStrExt on Unix)
+/// would work but complicates cross-platform support. Since non-UTF-8 filenames
+/// are rare in practice, we require valid UTF-8 for now. If this is fixed in the
+/// future it must be done carefully and correctly (e.g. don't just use lossy conversion
+/// which would create potential collisions).
+fn path_to_str(path: &Path) -> Result<&str, StatusError> {
+    path.to_str()
+        .ok_or_else(|| StatusError::Other(format!("non-UTF-8 path not supported: {:?}", path)))
+}
+
+fn compute_fingerprint(statuses: &[StatusEntry]) -> Result<String, StatusError> {
     let mut hasher = Sha256::new();
 
     for entry in statuses {
@@ -546,7 +563,7 @@ fn compute_fingerprint(statuses: &[StatusEntry]) -> String {
             continue;
         }
 
-        hasher.update(entry.path().to_string_lossy().as_bytes());
+        hasher.update(path_to_str(entry.path())?.as_bytes());
         hasher.update(b"|");
 
         let status_type_str = match entry.status_type() {
@@ -561,7 +578,7 @@ fn compute_fingerprint(statuses: &[StatusEntry]) -> String {
     }
 
     let hash_bytes = hasher.finalize();
-    base64::engine::general_purpose::STANDARD.encode(hash_bytes)
+    Ok(base64::engine::general_purpose::STANDARD.encode(hash_bytes))
 }
 
 /// Build WardFile objects from a StatusResult.
@@ -1637,5 +1654,74 @@ mod tests {
         assert_eq!(result_all.statuses[0].status_type(), StatusType::Unchanged);
 
         assert_eq!(result_interesting.fingerprint, result_all.fingerprint);
+    }
+
+    /// WARNING: This test verifies that non-UTF-8 paths are rejected rather than
+    /// silently converted. Do not change this behavior without extreme care!
+    ///
+    /// The fingerprint mechanism relies on paths being converted to bytes for
+    /// hashing. If we used lossy UTF-8 conversion (to_string_lossy), different
+    /// non-UTF-8 byte sequences could map to the same replacement character
+    /// sequence, causing distinct file sets to produce identical fingerprints.
+    /// This would break the TOCTOU protection that fingerprints provide.
+    ///
+    /// If we need to support non-UTF-8 paths in the future, we must use a
+    /// collision-free encoding (e.g., raw OS bytes via OsStrExt on Unix).
+    #[test]
+    #[cfg(unix)]
+    fn test_non_utf8_path_rejected() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        // Create a filename with invalid UTF-8: 0xFF is not valid in any UTF-8 sequence
+        let invalid_utf8_name =
+            OsStr::from_bytes(&[0x66, 0x69, 0x6c, 0x65, 0xFF, 0x2e, 0x74, 0x78, 0x74]); // "file\xFF.txt"
+        let invalid_path = root.join(invalid_utf8_name);
+
+        // Linux (ext4, etc.) allows non-UTF-8 filenames. Other platforms like macOS
+        // (APFS/HFS+) enforce UTF-8 at the filesystem level. If file creation fails,
+        // test path_to_str directly on the in-memory path object. This is more prone
+        // to errors since we are testing a specific function that may or
+        // may not actually be used in the logic that is relevant.
+        // However, it is better than nothing given that we cannot actually
+        // create the real files on these platforms.
+        if fs::write(&invalid_path, "content").is_err() {
+            #[cfg(target_os = "linux")]
+            panic!("expected non-UTF-8 filename to be allowed on Linux");
+
+            #[cfg(not(target_os = "linux"))]
+            {
+                let result = path_to_str(&invalid_path);
+                assert!(result.is_err());
+                let err_msg = result.unwrap_err().to_string();
+                assert!(
+                    err_msg.contains("non-UTF-8"),
+                    "Error should mention non-UTF-8: {}",
+                    err_msg
+                );
+                return;
+            }
+        }
+
+        create_ward_file(root, BTreeMap::new());
+
+        let result = compute_status(
+            root,
+            ChecksumPolicy::Never,
+            StatusMode::Interesting,
+            StatusPurpose::Display,
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("non-UTF-8"),
+            "Error should mention non-UTF-8: {}",
+            err_msg
+        );
     }
 }
