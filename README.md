@@ -25,25 +25,30 @@ cargo install --path .
 Initialize a directory tree:
 
 ```bash
-treeward init [/path/to/data]
+# From within the directory
+cd /path/to/project
+treeward init
+
+# Or without changing directory
+treeward -C /path/to/project init
 ```
 
 Check what has changed:
 
 ```bash
-treeward status [/path/to/data]
+treeward status
 ```
 
 Update ward files to record new state:
 
 ```bash
-treeward update [/path/to/data]
+treeward update
 ```
 
 Verify integrity (automation/monitoring):
 
 ```bash
-treeward verify [/path/to/data]
+treeward verify
 ```
 
 ## Commands
@@ -56,8 +61,8 @@ Performs first-time initialization of `.treeward` files in a directory tree. Che
 # Initialize current directory
 treeward init
 
-# Initialize specific directory
-treeward init /path/to/project
+# Initialize specific directory (without cd)
+treeward -C /path/to/project init
 
 # Preview without writing files
 treeward init --dry-run
@@ -77,8 +82,8 @@ Updates existing `.treeward` files to reflect current state. Only checksums new 
 # Update current directory
 treeward update
 
-# Update specific directory
-treeward update /path/to/project
+# Update specific directory (without cd)
+treeward -C /path/to/project update
 
 # Preview what would be updated
 treeward update --dry-run
@@ -135,17 +140,17 @@ Verifies integrity of all files by checksumming everything and comparing against
 # Verify current directory
 treeward verify
 
-# Verify specific directory
-treeward verify /path/to/data
+# Verify specific directory (without cd)
+treeward -C /path/to/data verify
 
 # Use in scripts (exit code 0 = success)
-treeward verify /critical/data || alert_admin
+treeward -C /critical/data verify || alert_admin
 
 # Cron job
-0 2 * * * /usr/local/bin/treeward verify /data || mail admin
+0 2 * * * /usr/local/bin/treeward -C /data verify || mail admin
 
 # CI/CD pipeline
-treeward verify ./dist && deploy.sh
+treeward -C ./dist verify && deploy.sh
 ```
 
 **Exit codes:**
@@ -156,7 +161,8 @@ treeward verify ./dist && deploy.sh
 
 ```bash
 # 1. Initialize a directory tree
-treeward init /path/to/project
+cd /path/to/project
+treeward init
 
 # 2. Make changes to your files
 # ... edit, add, remove files ...
@@ -194,14 +200,14 @@ treeward update --fingerprint $FP
 ### Detect data corruption
 
 ```bash
-treeward status --always-verify /critical/data
+treeward -C /critical/data status --always-verify
 ```
 
 ### Automated integrity monitoring
 
 ```bash
 #!/bin/bash
-if ! treeward verify /data; then
+if ! treeward -C /data verify; then
   echo "Integrity check failed!" | mail admin@example.com
   exit 1
 fi
@@ -212,9 +218,9 @@ fi
 ```yaml
 - name: Verify build artifacts
   run: |
-    treeward init ./dist
+    treeward -C ./dist init
     # ... build process ...
-    treeward verify ./dist
+    treeward -C ./dist verify
 ```
 
 ### Idempotent scripting
