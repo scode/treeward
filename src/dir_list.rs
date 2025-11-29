@@ -505,4 +505,41 @@ mod tests {
             _ => panic!("Expected UnsupportedFileType error, got {:?}", result),
         }
     }
+
+    /// Hard links should be treated as separate files, not deduplicated.
+    #[test]
+    #[cfg(unix)]
+    fn test_hard_links_treated_as_separate_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        fs::write(root.join("original.txt"), "content").unwrap();
+        fs::hard_link(root.join("original.txt"), root.join("hardlink.txt")).unwrap();
+
+        let entries = list_directory(root).unwrap();
+
+        assert_eq!(entries.len(), 2);
+        assert!(entries.contains_key("original.txt"));
+        assert!(entries.contains_key("hardlink.txt"));
+
+        let original = entries.get("original.txt").unwrap();
+        let hardlink = entries.get("hardlink.txt").unwrap();
+
+        match (original, hardlink) {
+            (
+                FsEntry::File {
+                    mtime: mtime1,
+                    size: size1,
+                },
+                FsEntry::File {
+                    mtime: mtime2,
+                    size: size2,
+                },
+            ) => {
+                assert_eq!(size1, size2);
+                assert_eq!(mtime1, mtime2);
+            }
+            _ => panic!("Expected both entries to be files"),
+        }
+    }
 }
