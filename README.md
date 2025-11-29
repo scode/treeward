@@ -1,5 +1,7 @@
 # treeward
 
+![treeward demo](docs/demogif/demo.gif)
+
 > **treeward** (n.)
 > *A filesystem ward bound to a directory tree, keeping watch for corruption, silent edits, and other lurking horrors.*
 
