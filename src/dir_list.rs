@@ -18,6 +18,8 @@ pub enum DirListError {
     Io(std::io::Error),
     #[error("Permission denied: {0}")]
     PermissionDenied(PathBuf),
+    #[error("non-UTF-8 path not supported: {0:?}")]
+    NonUtf8Path(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +67,8 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
         let filename = path
             .file_name()
             .ok_or_else(|| DirListError::Io(std::io::Error::other("Failed to get filename")))?
-            .to_string_lossy()
+            .to_str()
+            .ok_or_else(|| DirListError::NonUtf8Path(path.clone()))?
             .to_string();
 
         let file_type = metadata.file_type();
