@@ -4,7 +4,7 @@ use std::fs;
 use tempfile::TempDir;
 
 #[test]
-fn ward_init_creates_ward_files() {
+fn init_creates_ward_files() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
@@ -19,12 +19,12 @@ fn ward_init_creates_ward_files() {
 }
 
 #[test]
-fn ward_without_init_fails() {
+fn update_without_init_fails() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("update")
         .arg(temp.path())
         .assert()
         .failure()
@@ -32,7 +32,7 @@ fn ward_without_init_fails() {
 }
 
 #[test]
-fn ward_dry_run_skips_writes() {
+fn init_dry_run_skips_writes() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
@@ -48,7 +48,7 @@ fn ward_dry_run_skips_writes() {
 }
 
 #[test]
-fn ward_respects_fingerprint() {
+fn update_respects_fingerprint() {
     let temp = TempDir::new().unwrap();
     let file_path = temp.path().join("file.txt");
     fs::write(&file_path, "hello").unwrap();
@@ -75,7 +75,7 @@ fn ward_respects_fingerprint() {
     let fingerprint = extract_fingerprint(&output_str);
 
     cargo_bin_cmd!("treeward")
-        .arg("ward")
+        .arg("update")
         .arg(temp.path())
         .arg("--fingerprint")
         .arg(&fingerprint)

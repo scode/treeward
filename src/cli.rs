@@ -16,9 +16,9 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Initialize and/or update ward files with current state
-    Ward {
-        /// Directory to ward
+    /// Update ward files with current state
+    Update {
+        /// Directory to update
         #[arg(value_name = "PATH", default_value = ".")]
         path: PathBuf,
 
