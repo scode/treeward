@@ -534,6 +534,229 @@ unknown_field = "should_be_rejected"
     }
 
     #[test]
+    fn test_filename_with_emoji() {
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "🎉party🎊.txt".to_string(),
+            WardEntry::File {
+                sha256: "abc123".to_string(),
+                mtime_nanos: 1234567890,
+                size: 42,
+            },
+        );
+        entries.insert("📁folder📂".to_string(), WardEntry::Dir {});
+        entries.insert(
+            "🔗link→target".to_string(),
+            WardEntry::Symlink {
+                symlink_target: PathBuf::from("🎯target🎯"),
+            },
+        );
+
+        let ward_file = WardFile::new(entries);
+        let toml_string = ward_file.to_toml().unwrap();
+        let parsed = WardFile::from_toml(&toml_string).unwrap();
+
+        assert_eq!(parsed.entries.len(), 3);
+        assert!(parsed.entries.contains_key("🎉party🎊.txt"));
+        assert!(parsed.entries.contains_key("📁folder📂"));
+        assert!(parsed.entries.contains_key("🔗link→target"));
+
+        match parsed.entries.get("🔗link→target").unwrap() {
+            WardEntry::Symlink { symlink_target } => {
+                assert_eq!(symlink_target, &PathBuf::from("🎯target🎯"));
+            }
+            _ => panic!("Expected Symlink entry"),
+        }
+    }
+
+    /// Tests filenames containing right-to-left (RTL) scripts like Arabic and Hebrew.
+    #[test]
+    fn test_filename_with_rtl_text() {
+        let mut entries = BTreeMap::new();
+        // Arabic text
+        entries.insert(
+            "ملف.txt".to_string(),
+            WardEntry::File {
+                sha256: "abc123".to_string(),
+                mtime_nanos: 1234567890,
+                size: 42,
+            },
+        );
+        // Hebrew text
+        entries.insert("קובץ".to_string(), WardEntry::Dir {});
+        // Mixed LTR and RTL
+        entries.insert(
+            "file_ملف_mixed.txt".to_string(),
+            WardEntry::File {
+                sha256: "def456".to_string(),
+                mtime_nanos: 9876543210,
+                size: 100,
+            },
+        );
+
+        let ward_file = WardFile::new(entries);
+        let toml_string = ward_file.to_toml().unwrap();
+        let parsed = WardFile::from_toml(&toml_string).unwrap();
+
+        assert_eq!(parsed.entries.len(), 3);
+        assert!(parsed.entries.contains_key("ملف.txt"));
+        assert!(parsed.entries.contains_key("קובץ"));
+        assert!(parsed.entries.contains_key("file_ملف_mixed.txt"));
+    }
+
+    #[test]
+    fn test_filename_with_combining_characters() {
+        let mut entries = BTreeMap::new();
+        // e + combining acute accent (é as two code points)
+        let decomposed = "e\u{0301}.txt".to_string();
+        // precomposed é (single code point) - different from above
+        let precomposed = "é.txt".to_string();
+        // Multiple combining marks: a + combining ring above + combining acute
+        let multi_combining = "a\u{030A}\u{0301}.txt".to_string();
+        // Zalgo-style text with many combining characters
+        let zalgo = "t\u{0336}\u{0317}\u{0320}e\u{0337}\u{0324}x\u{0335}\u{031A}t.txt".to_string();
+
+        entries.insert(
+            decomposed.clone(),
+            WardEntry::File {
+                sha256: "abc123".to_string(),
+                mtime_nanos: 1234567890,
+                size: 42,
+            },
+        );
+        entries.insert(
+            precomposed.clone(),
+            WardEntry::File {
+                sha256: "def456".to_string(),
+                mtime_nanos: 9876543210,
+                size: 100,
+            },
+        );
+        entries.insert(
+            multi_combining.clone(),
+            WardEntry::File {
+                sha256: "ghi789".to_string(),
+                mtime_nanos: 5555555555,
+                size: 50,
+            },
+        );
+        entries.insert(zalgo.clone(), WardEntry::Dir {});
+
+        let ward_file = WardFile::new(entries);
+        let toml_string = ward_file.to_toml().unwrap();
+        let parsed = WardFile::from_toml(&toml_string).unwrap();
+
+        assert_eq!(parsed.entries.len(), 4);
+        assert!(parsed.entries.contains_key(&decomposed));
+        assert!(parsed.entries.contains_key(&precomposed));
+        assert!(parsed.entries.contains_key(&multi_combining));
+        assert!(parsed.entries.contains_key(&zalgo));
+
+        // Verify decomposed vs precomposed are treated as distinct.
+        // "e\u{0301}" is 'e' followed by a combining acute accent (2 code points).
+        // "é" is the precomposed form (1 code point, U+00E9).
+        // These look identical when rendered but are different byte sequences.
+        assert_ne!(decomposed, precomposed);
+        let decomposed_entry = parsed.entries.get(&decomposed).unwrap();
+        let precomposed_entry = parsed.entries.get(&precomposed).unwrap();
+        match (decomposed_entry, precomposed_entry) {
+            (
+                WardEntry::File {
+                    sha256: sha1,
+                    size: size1,
+                    ..
+                },
+                WardEntry::File {
+                    sha256: sha2,
+                    size: size2,
+                    ..
+                },
+            ) => {
+                assert_eq!(sha1, "abc123");
+                assert_eq!(sha2, "def456");
+                assert_eq!(*size1, 42);
+                assert_eq!(*size2, 100);
+            }
+            _ => panic!("Expected File entries"),
+        }
+    }
+
+    #[test]
+    fn test_filename_with_special_toml_characters() {
+        let mut entries = BTreeMap::new();
+        // Characters that have special meaning in TOML
+        entries.insert(
+            "file with spaces.txt".to_string(),
+            WardEntry::File {
+                sha256: "abc".to_string(),
+                mtime_nanos: 1000,
+                size: 10,
+            },
+        );
+        entries.insert(
+            "file\twith\ttabs.txt".to_string(),
+            WardEntry::File {
+                sha256: "def".to_string(),
+                mtime_nanos: 2000,
+                size: 20,
+            },
+        );
+        entries.insert(
+            "file\"with\"quotes.txt".to_string(),
+            WardEntry::File {
+                sha256: "ghi".to_string(),
+                mtime_nanos: 3000,
+                size: 30,
+            },
+        );
+        entries.insert(
+            "file\\with\\backslashes.txt".to_string(),
+            WardEntry::File {
+                sha256: "jkl".to_string(),
+                mtime_nanos: 4000,
+                size: 40,
+            },
+        );
+        entries.insert(
+            "file=with=equals.txt".to_string(),
+            WardEntry::File {
+                sha256: "mno".to_string(),
+                mtime_nanos: 5000,
+                size: 50,
+            },
+        );
+        entries.insert(
+            "file[with]brackets.txt".to_string(),
+            WardEntry::File {
+                sha256: "pqr".to_string(),
+                mtime_nanos: 6000,
+                size: 60,
+            },
+        );
+        entries.insert(
+            "file#with#hash.txt".to_string(),
+            WardEntry::File {
+                sha256: "stu".to_string(),
+                mtime_nanos: 7000,
+                size: 70,
+            },
+        );
+
+        let ward_file = WardFile::new(entries.clone());
+        let toml_string = ward_file.to_toml().unwrap();
+        let parsed = WardFile::from_toml(&toml_string).unwrap();
+
+        assert_eq!(parsed.entries.len(), entries.len());
+        for key in entries.keys() {
+            assert!(
+                parsed.entries.contains_key(key),
+                "Missing key after round-trip: {:?}",
+                key
+            );
+        }
+    }
+
+    #[test]
     fn test_save_permission_denied() {
         use std::os::unix::fs::PermissionsExt;
         use tempfile::TempDir;
