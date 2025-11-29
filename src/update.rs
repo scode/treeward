@@ -1,6 +1,6 @@
 use crate::checksum::{ChecksumError, checksum_file};
 use crate::dir_list::{DirListError, FsEntry, list_directory};
-use crate::status::{ChecksumPolicy, StatusError, compute_status};
+use crate::status::{ChecksumPolicy, StatusError, StatusMode, compute_status};
 use crate::ward_file::{WardEntry, WardFile, WardFileError};
 use std::collections::BTreeMap;
 use std::io::ErrorKind;
@@ -107,7 +107,11 @@ pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, W
         // TODO: We should actually verify the fingerprint after having
         // generated the ward files, otherwise we are subject to concurrent
         // modifications racing.
-        let status = compute_status(&root, ChecksumPolicy::WhenPossiblyModified)?;
+        let status = compute_status(
+            &root,
+            ChecksumPolicy::WhenPossiblyModified,
+            StatusMode::Interesting,
+        )?;
 
         if &status.fingerprint != expected_fingerprint {
             return Err(WardError::FingerprintMismatch {
@@ -345,7 +349,12 @@ mod tests {
 
         fs::write(root.join("file2.txt"), "content2").unwrap();
 
-        let status = compute_status(root, ChecksumPolicy::WhenPossiblyModified).unwrap();
+        let status = compute_status(
+            root,
+            ChecksumPolicy::WhenPossiblyModified,
+            StatusMode::Interesting,
+        )
+        .unwrap();
 
         let options = WardOptions {
             init: false,

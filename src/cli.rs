@@ -547,6 +547,10 @@ EXAMPLES:
         /// Always verify checksums for all files (detect silent corruption)
         #[arg(long, conflicts_with = "verify")]
         always_verify: bool,
+
+        /// Show all files, including unchanged ones
+        #[arg(long)]
+        all: bool,
     },
 
     /// Verify consistency of the ward, exit with success if no inconsistency.

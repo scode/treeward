@@ -66,7 +66,8 @@ fn main() -> ExitCode {
         Command::Status {
             verify,
             always_verify,
-        } => handle_status(current_dir.clone(), verify, always_verify),
+            all,
+        } => handle_status(current_dir.clone(), verify, always_verify, all),
         Command::Verify {} => handle_verify(current_dir),
     };
 
@@ -113,7 +114,12 @@ fn handle_ward(
     Ok(ExitCode::SUCCESS)
 }
 
-fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Result<ExitCode> {
+fn handle_status(
+    path: PathBuf,
+    verify: bool,
+    always_verify: bool,
+    all: bool,
+) -> anyhow::Result<ExitCode> {
     let policy = if always_verify {
         ChecksumPolicy::Always
     } else if verify {
@@ -122,7 +128,18 @@ fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Re
         ChecksumPolicy::Never
     };
 
-    let result = status::compute_status(&path, policy)?;
+    let mode = if all {
+        status::StatusMode::All
+    } else {
+        status::StatusMode::Interesting
+    };
+
+    let result = status::compute_status(&path, policy, mode)?;
+
+    let has_interesting_changes = result
+        .changes
+        .iter()
+        .any(|c| c.change_type != status::ChangeType::Unchanged);
 
     if result.changes.is_empty() {
         return Ok(ExitCode::SUCCESS);
@@ -130,18 +147,26 @@ fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Re
 
     print_changes(&result.changes);
 
-    println!();
-    println!("Fingerprint: {}", result.fingerprint);
-    info!(
-        "Run 'treeward init|update --fingerprint {}' to accept these changes and update the ward.",
-        result.fingerprint
-    );
+    if has_interesting_changes {
+        println!();
+        println!("Fingerprint: {}", result.fingerprint);
+        info!(
+            "Run 'treeward init|update --fingerprint {}' to accept these changes and update the ward.",
+            result.fingerprint
+        );
 
-    Ok(WardExitCode::status_unclean())
+        Ok(WardExitCode::status_unclean())
+    } else {
+        Ok(ExitCode::SUCCESS)
+    }
 }
 
 fn handle_verify(path: PathBuf) -> anyhow::Result<ExitCode> {
-    let result = status::compute_status(&path, ChecksumPolicy::Always)?;
+    let result = status::compute_status(
+        &path,
+        ChecksumPolicy::Always,
+        status::StatusMode::Interesting,
+    )?;
 
     if result.changes.is_empty() {
         info!("Verification successful: No changes or corruption detected");
@@ -163,6 +188,7 @@ fn print_changes(changes: &[status::Change]) {
             status::ChangeType::Removed => "R",
             status::ChangeType::PossiblyModified => "M?",
             status::ChangeType::Modified => "M",
+            status::ChangeType::Unchanged => ".",
         };
 
         println!("{} {}", status_code, change.path.display());
