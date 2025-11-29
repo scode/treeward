@@ -72,7 +72,7 @@ src/
 ├── dir_list.rs    - Non-recursive directory listing with filesystem metadata
 ├── ward_file.rs   - TOML serialization/deserialization for .treeward files
 ├── status.rs      - Change detection by comparing filesystem vs ward state
-├── ward.rs        - Ward creation and update logic
+├── update.rs      - Ward creation and update logic
 └── main.rs        - CLI entry point (currently stub)
 ```
 
@@ -105,7 +105,7 @@ src/
 - `ChangeType` variants: `Added`, `Removed`, `PossiblyModified`, `Modified`
 - Fingerprint is SHA-256 hash of sorted changes (for TOCTOU protection)
 
-**ward.rs** (ward creation/update):
+**update.rs** (ward creation/update):
 - `ward_directory()` creates or updates `.treeward` files
 - Supports `WardOptions { init, fingerprint, dry_run }`
 - Only checksums new or modified files (reuses checksums when metadata matches)
@@ -122,7 +122,7 @@ The project follows a bottom-up implementation approach (see PLAN.md for full de
 - ✅ Step 2: Ward file format implemented (`ward_file.rs`)
 - ✅ Step 3: Non-recursive directory listing implemented (`dir_list.rs`)
 - ✅ Step 4: Change detection implemented (`status.rs`)
-- ✅ Step 5: Ward update logic implemented (`ward.rs`)
+- ✅ Step 5: Ward update logic implemented (`update.rs`)
 - ⏳ Step 6+: Verify logic, CLI layer (not yet implemented)
 
 ### Testing Strategy
@@ -167,7 +167,7 @@ When adding or modifying entry types, ensure consistency between:
 
 Multiple modules perform recursive directory traversal:
 - `status::walk_directory()`: Compares ward vs filesystem recursively
-- `ward::walk_and_ward()`: Updates ward files recursively
+- `update::walk_and_ward()`: Updates ward files recursively
 
 When implementing recursive operations:
 - Traverse both ward entries (for removed items) and filesystem entries (for added items)

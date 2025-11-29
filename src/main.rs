@@ -2,7 +2,7 @@ mod checksum;
 mod cli;
 mod dir_list;
 mod status;
-mod ward;
+mod update;
 mod ward_file;
 
 use cli::{Cli, Command};
@@ -18,7 +18,7 @@ use tracing_subscriber::fmt::FmtContext;
 use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
-use ward::{WardOptions, ward_directory};
+use update::{WardOptions, ward_directory};
 
 struct WardExitCode;
 
@@ -35,7 +35,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     let result: anyhow::Result<ExitCode> = match cli.command {
-        Command::Ward {
+        Command::Update {
             path,
             fingerprint,
             dry_run,
@@ -114,7 +114,7 @@ fn handle_status(path: PathBuf, verify: bool, always_verify: bool) -> anyhow::Re
     println!();
     println!("Fingerprint: {}", result.fingerprint);
     info!(
-        "Run 'treeward init|ward --fingerprint {}' to accept these changes and update the ward.",
+        "Run 'treeward init|update --fingerprint {}' to accept these changes and update the ward.",
         result.fingerprint
     );
 
