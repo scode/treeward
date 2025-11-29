@@ -134,12 +134,12 @@ fn handle_status(
         status::StatusMode::Interesting
     };
 
-    let result = status::compute_status(&path, policy, mode)?;
+    let result = status::compute_status(&path, policy, mode, status::StatusPurpose::Display)?;
 
     let has_interesting_changes = result
         .statuses
         .iter()
-        .any(|c| c.status_type != status::StatusType::Unchanged);
+        .any(|c| c.status_type() != status::StatusType::Unchanged);
 
     if result.statuses.is_empty() {
         return Ok(ExitCode::SUCCESS);
@@ -166,6 +166,7 @@ fn handle_verify(path: PathBuf) -> anyhow::Result<ExitCode> {
         &path,
         ChecksumPolicy::Always,
         status::StatusMode::Interesting,
+        status::StatusPurpose::Display,
     )?;
 
     if result.statuses.is_empty() {
@@ -181,9 +182,9 @@ fn handle_verify(path: PathBuf) -> anyhow::Result<ExitCode> {
     );
 }
 
-fn print_statuses(statuses: &[status::Status]) {
-    for status in statuses {
-        let status_code = match status.status_type {
+fn print_statuses(statuses: &[status::StatusEntry]) {
+    for entry in statuses {
+        let status_code = match entry.status_type() {
             status::StatusType::Added => "A",
             status::StatusType::Removed => "R",
             status::StatusType::PossiblyModified => "M?",
@@ -191,7 +192,7 @@ fn print_statuses(statuses: &[status::Status]) {
             status::StatusType::Unchanged => ".",
         };
 
-        println!("{} {}", status_code, status.path.display());
+        println!("{} {}", status_code, entry.path().display());
     }
 }
 
