@@ -37,6 +37,7 @@ pub struct WardOptions {
     pub dry_run: bool,
 }
 
+#[derive(Debug)]
 pub struct WardResult {
     pub files_warded: usize,
     pub ward_files_updated: Vec<PathBuf>,
@@ -581,5 +582,91 @@ mod tests {
 
         let newdir_ward = WardFile::load(&root.join("newdir/.treeward")).unwrap();
         assert!(newdir_ward.entries.contains_key("file2.txt"));
+    }
+
+    #[test]
+    fn test_ward_write_permission_denied() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(root.join("file1.txt"), "content1").unwrap();
+
+        let mut perms = fs::metadata(root).unwrap().permissions();
+        perms.set_mode(0o555);
+        fs::set_permissions(root, perms.clone()).unwrap();
+
+        let options = WardOptions {
+            init: true,
+            allow_init: false,
+            fingerprint: None,
+            dry_run: false,
+        };
+
+        let result = ward_directory(root, options);
+
+        perms.set_mode(0o755);
+        fs::set_permissions(root, perms).unwrap();
+
+        assert!(result.is_err());
+        match result {
+            Err(WardError::WardFile(crate::ward_file::WardFileError::PermissionDenied(_))) => {}
+            other => panic!("Expected WardFile(PermissionDenied) error, got {:?}", other),
+        }
+
+        assert!(!root.join(".treeward").exists());
+    }
+
+    #[test]
+    fn test_ward_write_permission_denied_subdirectory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(root.join("file1.txt"), "content1").unwrap();
+
+        let init_options = WardOptions {
+            init: true,
+            allow_init: false,
+            fingerprint: None,
+            dry_run: false,
+        };
+
+        ward_directory(root, init_options).unwrap();
+
+        // Create a new subdirectory and immediately make it read-only.
+        // This prevents the .treeward file being created.
+        fs::create_dir(root.join("newsubdir")).unwrap();
+        fs::write(root.join("newsubdir/file2.txt"), "content2").unwrap();
+
+        let mut perms = fs::metadata(root.join("newsubdir")).unwrap().permissions();
+        perms.set_mode(0o555);
+        fs::set_permissions(root.join("newsubdir"), perms.clone()).unwrap();
+
+        let options = WardOptions {
+            init: false,
+            allow_init: false,
+            fingerprint: None,
+            dry_run: false,
+        };
+
+        let result = ward_directory(root, options);
+
+        perms.set_mode(0o755);
+        fs::set_permissions(root.join("newsubdir"), perms).unwrap();
+
+        assert!(result.is_err());
+        assert!(
+            matches!(
+                result,
+                Err(WardError::WardFile(
+                    crate::ward_file::WardFileError::PermissionDenied(_)
+                ))
+            ),
+            "Expected WardFile(PermissionDenied) error, got {:?}",
+            result
+        );
     }
 }
