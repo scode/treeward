@@ -20,6 +20,8 @@ pub enum DirListError {
     PermissionDenied(PathBuf),
     #[error("non-UTF-8 path not supported: {0:?}")]
     NonUtf8Path(PathBuf),
+    #[error("unsupported file type (not a regular file, directory, or symlink): {0}")]
+    UnsupportedFileType(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,10 +79,12 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
         } else if file_type.is_dir() {
             let mtime = metadata.modified().map_err(DirListError::Io)?;
             FsEntry::Dir { mtime }
-        } else {
+        } else if file_type.is_file() {
             let mtime = metadata.modified().map_err(DirListError::Io)?;
             let size = metadata.len();
             FsEntry::File { mtime, size }
+        } else {
+            return Err(DirListError::UnsupportedFileType(path));
         };
 
         entries.insert(filename, fs_entry);
@@ -454,6 +458,51 @@ mod tests {
                 assert_eq!(symlink_target, &PathBuf::from(".."));
             }
             _ => panic!("Expected Symlink entry"),
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_unsupported_file_type_fifo() {
+        use nix::sys::stat;
+        use nix::unistd;
+
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        let fifo_path = root.join("test_fifo");
+        unistd::mkfifo(&fifo_path, stat::Mode::S_IRWXU).unwrap();
+
+        let result = list_directory(root);
+
+        assert!(result.is_err());
+        match result {
+            Err(DirListError::UnsupportedFileType(path)) => {
+                assert_eq!(path, fifo_path);
+            }
+            _ => panic!("Expected UnsupportedFileType error, got {:?}", result),
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_unsupported_file_type_socket() {
+        use std::os::unix::net::UnixListener;
+
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        let socket_path = root.join("test_socket");
+        let _listener = UnixListener::bind(&socket_path).unwrap();
+
+        let result = list_directory(root);
+
+        assert!(result.is_err());
+        match result {
+            Err(DirListError::UnsupportedFileType(path)) => {
+                assert_eq!(path, socket_path);
+            }
+            _ => panic!("Expected UnsupportedFileType error, got {:?}", result),
         }
     }
 }
