@@ -192,7 +192,7 @@ fn print_statuses(statuses: &[status::StatusEntry]) {
             status::StatusType::Unchanged => ".",
         };
 
-        println!("{} {}", status_code, entry.path().display());
+        println!("{} {}", status_code, entry.path());
     }
 }
 
