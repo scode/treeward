@@ -1702,6 +1702,30 @@ mod tests {
     }
 
     #[test]
+    fn test_malformed_ward_file_is_error() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(root.join("file.txt"), "content").unwrap();
+        fs::write(root.join(".treeward"), "this is not valid TOML {{{").unwrap();
+
+        let result = compute_status(
+            root,
+            ChecksumPolicy::Never,
+            StatusMode::Interesting,
+            StatusPurpose::Display,
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, StatusError::WardFile(WardFileError::TomlParse(_))),
+            "Expected TomlParse error, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
     #[cfg(unix)]
     fn test_symlink_cycle_does_not_cause_infinite_loop() {
         use std::os::unix;
