@@ -27,6 +27,11 @@ impl WardExitCode {
     fn status_unclean() -> ExitCode {
         ExitCode::from(1)
     }
+
+    /// Exit code used for other errors (I/O errors, invalid arguments, etc.).
+    fn any_error() -> ExitCode {
+        ExitCode::from(255)
+    }
 }
 
 fn main() -> ExitCode {
@@ -34,31 +39,42 @@ fn main() -> ExitCode {
 
     let cli = Cli::parse();
 
+    // Change working directory if -C was specified
+    if let Some(directory) = cli.directory
+        && let Err(e) = std::env::set_current_dir(&directory)
+    {
+        error!(
+            "Failed to change directory to {}: {}",
+            directory.display(),
+            e
+        );
+        return WardExitCode::any_error();
+    }
+
+    let current_dir = PathBuf::from(".");
+
     let result: anyhow::Result<ExitCode> = match cli.command {
         Command::Update {
-            path,
             allow_init,
             fingerprint,
             dry_run,
-        } => handle_ward(path, false, allow_init, fingerprint, dry_run),
+        } => handle_ward(current_dir.clone(), false, allow_init, fingerprint, dry_run),
         Command::Init {
-            path,
             fingerprint,
             dry_run,
-        } => handle_ward(path, true, false, fingerprint, dry_run),
+        } => handle_ward(current_dir.clone(), true, false, fingerprint, dry_run),
         Command::Status {
-            path,
             verify,
             always_verify,
-        } => handle_status(path, verify, always_verify),
-        Command::Verify { path } => handle_verify(path),
+        } => handle_status(current_dir.clone(), verify, always_verify),
+        Command::Verify {} => handle_verify(current_dir),
     };
 
     match result {
         Ok(exit_code) => exit_code,
         Err(err) => {
             error!("{err}");
-            WardExitCode::status_unclean()
+            WardExitCode::any_error()
         }
     }
 }

@@ -31,7 +31,11 @@ CORE CONCEPTS:
 TYPICAL WORKFLOW:
 
   1. Initialize a directory tree:
-     $ treeward init /path/to/project
+     $ cd /path/to/project
+     $ treeward init
+
+     Or without changing directory:
+     $ treeward -C /path/to/project init
 
   2. Make changes to your files
      $ # ... edit, add, remove files ...
@@ -47,25 +51,31 @@ TYPICAL WORKFLOW:
 
 COMMANDS:
 
-  init [PATH]
+  init
     Initialize .treeward files in a directory tree for the first time.
     Checksums all files and creates ward metadata. Fails if already initialized.
     Use this when setting up treeward for the first time.
 
-  update [PATH]
+  update
     Update existing .treeward files to reflect current state.
     Only checksums new or modified files (efficient for incremental changes).
     Fails if not initialized - use 'init' first, or 'update --allow-init'.
 
-  status [PATH]
+  status
     Show what has changed: added, removed, or modified files.
     Fast metadata-only check by default, optional checksumming with --verify.
     Produces fingerprints for safe update workflows.
 
-  verify [PATH]
+  verify
     Comprehensive integrity check - checksums all files and exits with
     status code 0 if everything matches. Designed for automation, monitoring,
     and CI/CD pipelines.
+
+GLOBAL OPTIONS:
+
+  -C <DIRECTORY>
+    Change to directory before operating (like git -C or make -C).
+    Defaults to current directory if not specified.
 
 COMMON USE CASES:
 
@@ -82,15 +92,15 @@ COMMON USE CASES:
     $ treeward update --fingerprint $FP
 
   Detect data corruption:
-    $ treeward status --always-verify /critical/data
+    $ treeward -C /critical/data status --always-verify
 
   Automated integrity monitoring:
-    $ treeward verify /data || alert_admin
+    $ treeward -C /data verify || alert_admin
 
   CI/CD artifact verification:
-    $ treeward init ./dist
+    $ treeward -C ./dist init
     $ # ... build process ...
-    $ treeward verify ./dist  # Ensure no unexpected changes
+    $ treeward -C ./dist verify
 
   Idempotent scripting:
     $ treeward update --allow-init  # Works whether initialized or not
@@ -122,6 +132,9 @@ EXAMPLES:
   # Initialize current directory
   $ treeward init
 
+  # Initialize specific directory (without changing to it)
+  $ treeward -C /path/to/project init
+
   # Check what changed (fast)
   $ treeward status
 
@@ -134,8 +147,8 @@ EXAMPLES:
   # Comprehensive integrity check
   $ treeward verify
 
-  # Automated monitoring
-  $ treeward verify /data || echo 'Integrity check failed!'
+  # Automated monitoring of specific directory
+  $ treeward -C /data verify || echo 'Integrity check failed!'
 
 For detailed help on any command, use:
   treeward <command> --help
@@ -149,6 +162,10 @@ For example:
     disable_version_flag = true
 )]
 pub struct Cli {
+    /// Change to directory before operating
+    #[arg(short = 'C', value_name = "DIRECTORY", global = true)]
+    pub directory: Option<PathBuf>,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -166,13 +183,14 @@ that have changed and updates the ward metadata accordingly.
 USAGE MODES:
 
   Normal update (default):
-    treeward update [PATH]
+    treeward update
+    treeward -C /path/to/project update
 
-    Updates .treeward files in PATH and its subdirectories. Fails if the root directory
-    has no .treeward file (use 'treeward init' for first-time initialization).
+    Updates .treeward files in the current (or specified) directory and subdirectories.
+    Fails if the root directory has no .treeward file (use 'treeward init' first).
 
   Update with --allow-init:
-    treeward update --allow-init [PATH]
+    treeward update --allow-init
 
     Updates .treeward files, creating them if missing. This makes 'update --allow-init'
     behave idempotently - it works whether or not ward files already exist. Useful for
@@ -231,8 +249,8 @@ EXAMPLES:
   # Update ward files in current directory
   $ treeward update
 
-  # Update ward files in specific directory
-  $ treeward update /path/to/project
+  # Update ward files in specific directory (without cd)
+  $ treeward -C /path/to/project update
 
   # Preview what would be updated
   $ treeward update --dry-run
@@ -245,10 +263,6 @@ EXAMPLES:
   $ treeward update --allow-init
 ")]
     Update {
-        /// Directory to update
-        #[arg(value_name = "PATH", default_value = ".")]
-        path: PathBuf,
-
         /// Allow initialization if ward files are missing
         #[arg(long)]
         allow_init: bool,
@@ -272,9 +286,10 @@ It recursively traverses the directory, computes SHA-256 checksums for all files
 
 USAGE:
 
-  treeward init [PATH]
+  treeward init
+  treeward -C /path/to/project init
 
-Initializes ward files in PATH (defaults to current directory). This command will FAIL if
+Initializes ward files in the current (or specified) directory. This command will FAIL if
 the root directory already has a .treeward file - use 'treeward update' for subsequent
 changes after initialization.
 
@@ -355,8 +370,8 @@ EXAMPLES:
   # Initialize current directory
   $ treeward init
 
-  # Initialize specific directory
-  $ treeward init /path/to/project
+  # Initialize specific directory (without cd)
+  $ treeward -C /path/to/project init
 
   # Preview initialization without writing files
   $ treeward init --dry-run
@@ -371,10 +386,6 @@ EXAMPLES:
   $ treeward update
 ")]
     Init {
-        /// Directory to initialize
-        #[arg(value_name = "PATH", default_value = ".")]
-        path: PathBuf,
-
         /// Only proceed if changes match this fingerprint from status
         #[arg(long, value_name = "FINGERPRINT")]
         fingerprint: Option<String>,
@@ -394,9 +405,10 @@ ward operation.
 
 USAGE:
 
-  treeward status [PATH]                  # Fast metadata-only check (default)
-  treeward status --verify [PATH]         # Checksum files with changed metadata
-  treeward status --always-verify [PATH]  # Checksum all files (detect silent corruption)
+  treeward status                         # Fast metadata-only check (default)
+  treeward status --verify                # Checksum files with changed metadata
+  treeward status --always-verify         # Checksum all files (detect silent corruption)
+  treeward -C /path/to/project status     # Check specific directory
 
 CHANGE TYPES:
 
@@ -465,7 +477,7 @@ UNINITIALIZED DIRECTORIES:
 
 Status works on uninitialized directories (those without .treeward files):
 
-  $ treeward status /path/to/uninitialized/dir
+  $ treeward -C /path/to/uninitialized/dir status
 
 All files will be reported as 'Added' since there's no existing ward to compare against.
 This is useful for previewing what would be recorded during initialization.
@@ -515,23 +527,19 @@ EXAMPLES:
   # Quick metadata check of current directory
   $ treeward status
 
-  # Verify changed files in specific directory
-  $ treeward status --verify /path/to/project
+  # Verify changed files in specific directory (without cd)
+  $ treeward -C /path/to/project status --verify
 
   # Full integrity audit (check all checksums)
   $ treeward status --always-verify
 
   # Preview what would be initialized
-  $ treeward status /path/to/uninitialized/dir
+  $ treeward -C /path/to/uninitialized/dir status
 
   # Automated verification (exit code 0 if no changes)
   $ treeward status --always-verify || echo \"Changes detected!\"
 ")]
     Status {
-        /// Directory to check
-        #[arg(value_name = "PATH", default_value = ".")]
-        path: PathBuf,
-
         /// Verify checksums for files whose metadata changed
         #[arg(long)]
         verify: bool,
@@ -551,9 +559,10 @@ monitoring where you want a simple success/failure result.
 
 USAGE:
 
-  treeward verify [PATH]
+  treeward verify
+  treeward -C /path/to/project verify
 
-Verifies all files in PATH (defaults to current directory). This is equivalent to:
+Verifies all files in the current (or specified) directory. This is equivalent to:
 
   treeward status --always-verify
 
@@ -593,22 +602,22 @@ The command is intentionally simple and focused on one task: comprehensive verif
 USE CASES:
 
 **Automated monitoring:**
-  $ treeward verify /critical/data || alert_admin
+  $ treeward -C /critical/data verify || alert_admin
 
 **Cron jobs:**
-  0 2 * * * /usr/local/bin/treeward verify /data || mail -s \"Integrity check failed\" admin@example.com
+  0 2 * * * /usr/local/bin/treeward -C /data verify || mail -s \"Integrity check failed\" admin@example.com
 
 **Pre-deployment verification:**
-  $ treeward verify /app/build || exit 1
+  $ treeward -C /app/build verify || exit 1
   $ deploy_to_production
 
 **Periodic integrity audits:**
-  $ treeward verify /archive
+  $ treeward -C /archive verify
   $ echo $?  # 0 = all good, non-zero = issues found
 
 **CI/CD pipeline checks:**
   - name: Verify build artifacts
-    run: treeward verify ./dist
+    run: treeward -C ./dist verify
 
 EXIT CODES:
 
@@ -666,12 +675,12 @@ EXAMPLES:
   $ treeward verify
   $ echo $?  # Check exit code
 
-  # Verify specific directory
-  $ treeward verify /path/to/data
+  # Verify specific directory (without cd)
+  $ treeward -C /path/to/data verify
 
   # Use in shell script
   #!/bin/bash
-  if treeward verify /critical/data; then
+  if treeward -C /critical/data verify; then
     echo \"Integrity check passed\"
   else
     echo \"WARNING: Integrity check failed!\"
@@ -679,25 +688,21 @@ EXAMPLES:
   fi
 
   # Verify before deploying
-  $ treeward verify ./build && deploy.sh
+  $ treeward -C ./build verify && deploy.sh
 
   # Cron job with email alert
-  0 2 * * * /usr/local/bin/treeward verify /data || echo \"Integrity failure\" | mail admin
+  0 2 * * * /usr/local/bin/treeward -C /data verify || echo \"Integrity failure\" | mail admin
 
   # CI/CD pipeline
   - name: Verify artifacts
     run: |
-      treeward verify ./artifacts
+      treeward -C ./artifacts verify
       if [ $? -ne 0 ]; then
         echo \"Artifact integrity check failed\"
         exit 1
       fi
 ")]
-    Verify {
-        /// Directory to verify
-        #[arg(value_name = "PATH", default_value = ".")]
-        path: PathBuf,
-    },
+    Verify {},
 }
 
 impl Cli {

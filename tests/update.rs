@@ -9,8 +9,9 @@ fn update_without_init_fails() {
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("update")
+        .arg("-C")
         .arg(temp.path())
+        .arg("update")
         .assert()
         .failure()
         .stderr(predicate::str::contains("Not initialized"));
@@ -23,17 +24,19 @@ fn update_respects_fingerprint() {
     fs::write(&file_path, "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("init")
+        .arg("-C")
         .arg(temp.path())
+        .arg("init")
         .assert()
         .success();
 
     fs::write(&file_path, "updated").unwrap();
 
     let status_output = cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
         .arg("status")
         .arg("--verify")
-        .arg(temp.path())
         .output()
         .unwrap();
     assert!(
@@ -44,8 +47,9 @@ fn update_respects_fingerprint() {
     let fingerprint = extract_fingerprint(&output_str);
 
     cargo_bin_cmd!("treeward")
-        .arg("update")
+        .arg("-C")
         .arg(temp.path())
+        .arg("update")
         .arg("--fingerprint")
         .arg(&fingerprint)
         .assert()
@@ -60,8 +64,9 @@ fn update_dry_run_skips_writes() {
     fs::write(&file_path, "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("init")
+        .arg("-C")
         .arg(temp.path())
+        .arg("init")
         .assert()
         .success();
 
@@ -71,8 +76,9 @@ fn update_dry_run_skips_writes() {
     fs::write(&file_path, "changed").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("update")
+        .arg("-C")
         .arg(temp.path())
+        .arg("update")
         .arg("--dry-run")
         .assert()
         .success()
@@ -88,14 +94,42 @@ fn update_allow_init_initializes_when_missing() {
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("update")
+        .arg("-C")
         .arg(temp.path())
+        .arg("update")
         .arg("--allow-init")
         .assert()
         .success()
         .stdout(predicate::str::is_empty());
 
     assert!(temp.path().join(".treeward").exists());
+}
+
+#[test]
+fn update_with_c_flag_changes_directory() {
+    let temp = TempDir::new().unwrap();
+    let subdir = temp.path().join("subdir");
+    fs::create_dir(&subdir).unwrap();
+    fs::write(subdir.join("file.txt"), "hello").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(&subdir)
+        .arg("init")
+        .assert()
+        .success();
+
+    fs::write(subdir.join("file.txt"), "updated").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .current_dir(temp.path())
+        .arg("-C")
+        .arg("subdir")
+        .arg("update")
+        .assert()
+        .success();
+
+    assert!(subdir.join(".treeward").exists());
 }
 
 fn extract_fingerprint(output: &str) -> String {

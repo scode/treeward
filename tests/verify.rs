@@ -9,14 +9,16 @@ fn verify_success_when_clean() {
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("init")
+        .arg("-C")
         .arg(temp.path())
+        .arg("init")
         .assert()
         .success();
 
     cargo_bin_cmd!("treeward")
-        .arg("verify")
+        .arg("-C")
         .arg(temp.path())
+        .arg("verify")
         .assert()
         .success()
         .stdout(predicate::str::is_empty());
@@ -28,16 +30,18 @@ fn verify_fails_on_added_file() {
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("init")
+        .arg("-C")
         .arg(temp.path())
+        .arg("init")
         .assert()
         .success();
 
     fs::write(temp.path().join("new.txt"), "new").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("verify")
+        .arg("-C")
         .arg(temp.path())
+        .arg("verify")
         .assert()
         .failure()
         .stdout(predicate::str::contains("A new.txt"))
@@ -51,18 +55,43 @@ fn verify_fails_on_modified_file() {
     fs::write(&file_path, "hello").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("init")
+        .arg("-C")
         .arg(temp.path())
+        .arg("init")
         .assert()
         .success();
 
     fs::write(&file_path, "changed").unwrap();
 
     cargo_bin_cmd!("treeward")
-        .arg("verify")
+        .arg("-C")
         .arg(temp.path())
+        .arg("verify")
         .assert()
         .failure()
         .stdout(predicate::str::contains("M file.txt"))
         .stderr(predicate::str::contains("Verification failed"));
+}
+
+#[test]
+fn verify_with_c_flag_changes_directory() {
+    let temp = TempDir::new().unwrap();
+    let subdir = temp.path().join("subdir");
+    fs::create_dir(&subdir).unwrap();
+    fs::write(subdir.join("file.txt"), "hello").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(&subdir)
+        .arg("init")
+        .assert()
+        .success();
+
+    cargo_bin_cmd!("treeward")
+        .current_dir(temp.path())
+        .arg("-C")
+        .arg("subdir")
+        .arg("verify")
+        .assert()
+        .success();
 }

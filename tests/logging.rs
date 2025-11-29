@@ -16,8 +16,9 @@ fn status_permission_error_logs_to_stderr_not_stdout() {
     fs::set_permissions(&protected, fs::Permissions::from_mode(0o000)).unwrap();
 
     let assert = cargo_bin_cmd!("treeward")
-        .arg("status")
+        .arg("-C")
         .arg(temp.path())
+        .arg("status")
         .assert();
 
     assert
@@ -38,8 +39,9 @@ fn warn_error_emojis_suppressed_when_not_tty() {
 
     // capture() makes stdout/stderr non-tty
     let output = cargo_bin_cmd!("treeward")
-        .arg("status")
+        .arg("-C")
         .arg(temp.path())
+        .arg("status")
         .assert()
         .failure()
         .get_output()
