@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf, StripPrefixError};
 use std::time::UNIX_EPOCH;
+use tracing::info;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StatusError {
@@ -263,6 +264,8 @@ fn walk_directory(
     mode: StatusMode,
     purpose: StatusPurpose,
 ) -> Result<(), StatusError> {
+    info!("Entering directory {}", current_dir.display());
+
     let ward_path = current_dir.join(".treeward");
     let ward_file = try_load_ward_file(&ward_path)?;
     let ward_entries = ward_file.map(|wf| wf.entries).unwrap_or_else(BTreeMap::new);

@@ -35,9 +35,9 @@ impl WardExitCode {
 }
 
 fn main() -> ExitCode {
-    init_tracing();
-
     let cli = Cli::parse();
+
+    init_tracing(cli.verbose);
 
     // Change working directory if -C was specified
     if let Some(directory) = cli.directory
@@ -195,11 +195,18 @@ fn print_statuses(statuses: &[status::StatusEntry]) {
     }
 }
 
-fn init_tracing() {
+fn init_tracing(verbose: u8) {
     let stderr_is_terminal = stderr().is_terminal();
     let formatter = EmojiFormatter { stderr_is_terminal };
 
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
+    let default_level = match verbose {
+        0 => "warn",
+        1 => "info",
+        _ => "debug",
+    };
+
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
 
     let fmt_layer = tracing_fmt::layer()
         .event_format(formatter)
@@ -228,12 +235,16 @@ where
     ) -> stdfmt::Result {
         if self.stderr_is_terminal {
             match *event.metadata().level() {
+                Level::DEBUG => write!(writer, "🔍 ")?,
+                Level::INFO => write!(writer, "ℹ️ ")?,
                 Level::WARN => write!(writer, "⚠️  ")?,
                 Level::ERROR => write!(writer, "❌️ ")?,
                 _ => {}
             }
         } else {
             match *event.metadata().level() {
+                Level::DEBUG => writer.write_str("DEBUG: ")?,
+                Level::INFO => writer.write_str("INFO: ")?,
                 Level::WARN => writer.write_str("WARN: ")?,
                 Level::ERROR => writer.write_str("ERROR: ")?,
                 _ => {}

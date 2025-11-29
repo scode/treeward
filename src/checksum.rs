@@ -2,6 +2,7 @@ use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use tracing::{debug, info};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ChecksumError {
@@ -37,6 +38,8 @@ pub struct FileChecksum {
 ///   checksumming. Note that the absence of this error is *not* a guarantee that the
 ///   file was *not* modified.
 pub fn checksum_file(path: &Path) -> Result<FileChecksum, ChecksumError> {
+    info!("Checksumming {}", path.display());
+
     let metadata_before = std::fs::metadata(path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
             ChecksumError::PermissionDenied(path.to_path_buf())
@@ -73,6 +76,8 @@ pub fn checksum_file(path: &Path) -> Result<FileChecksum, ChecksumError> {
 
     let hash_bytes = hasher.finalize();
     let sha256 = format!("{:x}", hash_bytes);
+
+    debug!("Checksum of {} is {}", path.display(), sha256);
 
     Ok(FileChecksum {
         sha256,
