@@ -18,6 +18,10 @@ pub enum ChecksumError {
 pub struct FileChecksum {
     /// Hex encoded.
     pub sha256: String,
+    /// Modification time captured after checksumming (guaranteed stable during checksum).
+    pub mtime: std::time::SystemTime,
+    /// File size in bytes.
+    pub size: u64,
 }
 
 /// Computes the SHA-256 checksum of a file with concurrent modification detection.
@@ -73,7 +77,11 @@ pub fn checksum_file(path: &Path) -> Result<FileChecksum, ChecksumError> {
     let hash_bytes = hasher.finalize();
     let sha256 = format!("{:x}", hash_bytes);
 
-    Ok(FileChecksum { sha256 })
+    Ok(FileChecksum {
+        sha256,
+        mtime: mtime_after,
+        size: metadata_after.len(),
+    })
 }
 
 #[cfg(test)]
