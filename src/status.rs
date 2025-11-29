@@ -239,13 +239,7 @@ pub fn compute_status(
     mode: StatusMode,
     purpose: StatusPurpose,
 ) -> Result<StatusResult, StatusError> {
-    let root = root.canonicalize().map_err(|e| {
-        if e.kind() == ErrorKind::PermissionDenied {
-            StatusError::DirList(DirListError::PermissionDenied(root.to_path_buf()))
-        } else {
-            StatusError::DirList(DirListError::Io(e))
-        }
-    })?;
+    let root = root.to_path_buf();
 
     let mut statuses = Vec::new();
 

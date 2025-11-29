@@ -88,13 +88,7 @@ pub struct WardResult {
 ///   that were checksummed but found to be unchanged, and excludes directories/symlinks)
 /// * `ward_files_updated` - Relative paths of `.treeward` files that were written
 pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, WardError> {
-    let root = root.canonicalize().map_err(|e| {
-        if e.kind() == ErrorKind::PermissionDenied {
-            WardError::DirList(DirListError::PermissionDenied(root.to_path_buf()))
-        } else {
-            WardError::DirList(DirListError::Io(e))
-        }
-    })?;
+    let root = root.to_path_buf();
 
     let ward_path = root.join(".treeward");
 
