@@ -532,4 +532,31 @@ unknown_field = "should_be_rejected"
         assert!(result.is_err());
         assert!(matches!(result, Err(WardFileError::TomlParse(_))));
     }
+
+    #[test]
+    fn test_save_permission_denied() {
+        use std::os::unix::fs::PermissionsExt;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        let mut perms = std::fs::metadata(root).unwrap().permissions();
+        perms.set_mode(0o555);
+        std::fs::set_permissions(root, perms.clone()).unwrap();
+
+        let ward_file = WardFile::new(BTreeMap::new());
+        let ward_path = root.join(".treeward");
+        let result = ward_file.save(&ward_path);
+
+        perms.set_mode(0o755);
+        std::fs::set_permissions(root, perms).unwrap();
+
+        assert!(result.is_err());
+        assert!(
+            matches!(result, Err(WardFileError::PermissionDenied(_))),
+            "Expected PermissionDenied error, got {:?}",
+            result
+        );
+    }
 }
