@@ -20,7 +20,6 @@ pub enum DirListError {
     PermissionDenied(PathBuf),
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FsEntry {
     File { mtime: SystemTime, size: u64 },
@@ -28,7 +27,6 @@ pub enum FsEntry {
     Symlink { symlink_target: PathBuf },
 }
 
-#[allow(dead_code)]
 pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListError> {
     let root = root.canonicalize().map_err(|e| {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
