@@ -137,15 +137,15 @@ fn handle_status(
     let result = status::compute_status(&path, policy, mode)?;
 
     let has_interesting_changes = result
-        .changes
+        .statuses
         .iter()
-        .any(|c| c.change_type != status::ChangeType::Unchanged);
+        .any(|c| c.status_type != status::StatusType::Unchanged);
 
-    if result.changes.is_empty() {
+    if result.statuses.is_empty() {
         return Ok(ExitCode::SUCCESS);
     }
 
-    print_changes(&result.changes);
+    print_statuses(&result.statuses);
 
     if has_interesting_changes {
         println!();
@@ -168,30 +168,30 @@ fn handle_verify(path: PathBuf) -> anyhow::Result<ExitCode> {
         status::StatusMode::Interesting,
     )?;
 
-    if result.changes.is_empty() {
+    if result.statuses.is_empty() {
         info!("Verification successful: No changes or corruption detected");
         return Ok(ExitCode::SUCCESS);
     }
 
-    print_changes(&result.changes);
+    print_statuses(&result.statuses);
 
     anyhow::bail!(
         "Verification failed: {} changes detected",
-        result.changes.len()
+        result.statuses.len()
     );
 }
 
-fn print_changes(changes: &[status::Change]) {
-    for change in changes {
-        let status_code = match change.change_type {
-            status::ChangeType::Added => "A",
-            status::ChangeType::Removed => "R",
-            status::ChangeType::PossiblyModified => "M?",
-            status::ChangeType::Modified => "M",
-            status::ChangeType::Unchanged => ".",
+fn print_statuses(statuses: &[status::Status]) {
+    for status in statuses {
+        let status_code = match status.status_type {
+            status::StatusType::Added => "A",
+            status::StatusType::Removed => "R",
+            status::StatusType::PossiblyModified => "M?",
+            status::StatusType::Modified => "M",
+            status::StatusType::Unchanged => ".",
         };
 
-        println!("{} {}", status_code, change.path.display());
+        println!("{} {}", status_code, status.path.display());
     }
 }
 
