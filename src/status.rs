@@ -5,7 +5,7 @@ use base64::Engine;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf, StripPrefixError};
 use std::time::UNIX_EPOCH;
 
 #[derive(Debug, thiserror::Error)]
@@ -16,6 +16,8 @@ pub enum StatusError {
     DirList(#[from] DirListError),
     #[error("Checksum error: {0}")]
     Checksum(#[from] ChecksumError),
+    #[error("Path error: {0}")]
+    StripPrefix(#[from] StripPrefixError),
     #[error("{0}")]
     Other(String),
 }
@@ -348,7 +350,7 @@ fn compare_entries(
 ) -> Result<(), StatusError> {
     for name in fs_entries.keys() {
         if !ward_entries.contains_key(name) {
-            let relative_path = current_dir.strip_prefix(tree_root).unwrap().join(name);
+            let relative_path = current_dir.strip_prefix(tree_root)?.join(name);
             let fs_entry = &fs_entries[name];
 
             let ward_entry = if purpose == StatusPurpose::WardUpdate {
@@ -366,7 +368,7 @@ fn compare_entries(
 
     for name in ward_entries.keys() {
         if !fs_entries.contains_key(name) {
-            let relative_path = current_dir.strip_prefix(tree_root).unwrap().join(name);
+            let relative_path = current_dir.strip_prefix(tree_root)?.join(name);
             statuses.push(StatusEntry::Removed {
                 path: relative_path,
             });
@@ -415,7 +417,7 @@ fn check_modification(
     mode: StatusMode,
     purpose: StatusPurpose,
 ) -> Result<(), StatusError> {
-    let relative_path = current_dir.strip_prefix(tree_root).unwrap().join(name);
+    let relative_path = current_dir.strip_prefix(tree_root)?.join(name);
     let absolute_path = current_dir.join(name);
 
     match (ward_entry, fs_entry) {
