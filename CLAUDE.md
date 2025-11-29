@@ -2,9 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-See `AGENTS.md` for additional instructions about how to operate in this repo.
-Always follow the guidance in `AGENTS.md`.
-
 ## Project Overview
 
 **treeward** is a command-line file integrity tool for checksumming and verifying trees of files. It uses a distributed approach where each directory contains a `.treeward` TOML file tracking its immediate children (non-recursive per-directory model), allowing directories to be moved independently while maintaining integrity information.
@@ -69,11 +66,12 @@ cargo build --release
 ```
 src/
 ├── checksum.rs    - SHA-256 file checksumming with concurrent modification detection
+├── cli.rs         - CLI argument parsing (clap)
 ├── dir_list.rs    - Non-recursive directory listing with filesystem metadata
 ├── ward_file.rs   - TOML serialization/deserialization for .treeward files
 ├── status.rs      - Change detection by comparing filesystem vs ward state
 ├── update.rs      - Ward creation and update logic
-└── main.rs        - CLI entry point (currently stub)
+└── main.rs        - CLI entry point and command handlers
 ```
 
 ### Key Data Flow
@@ -112,18 +110,6 @@ src/
 - Only writes `.treeward` files if contents actually changed
 - Fingerprint validation prevents TOCTOU issues (validates before any writes)
 - Returns `WardResult { files_warded, ward_files_updated }`
-
-### Implementation Plan Status
-
-The project follows a bottom-up implementation approach (see PLAN.md for full details):
-
-- ✅ Step 0: Repository bootstrapped
-- ✅ Step 1: File checksumming implemented (`checksum.rs`)
-- ✅ Step 2: Ward file format implemented (`ward_file.rs`)
-- ✅ Step 3: Non-recursive directory listing implemented (`dir_list.rs`)
-- ✅ Step 4: Change detection implemented (`status.rs`)
-- ✅ Step 5: Ward update logic implemented (`update.rs`)
-- ⏳ Step 6+: Verify logic, CLI layer (not yet implemented)
 
 ### Testing Strategy
 
@@ -177,5 +163,5 @@ When implementing recursive operations:
 
 ### Code Style
 
-- Do not add trivial inline comments (see AGENTS.md)
+- Do not add trivial inline comments
 - Only add comments for non-obvious logic or to explain "why" not "what"
