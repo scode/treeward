@@ -19,6 +19,8 @@ pub enum WardError {
     Checksum(#[from] ChecksumError),
     #[error("Not initialized (use treeward init to initialize)")]
     NotInitialized,
+    #[error("Already initialized (use treeward update instead)")]
+    AlreadyInitialized,
     #[error("Fingerprint mismatch: expected {expected}, got {actual}")]
     FingerprintMismatch { expected: String, actual: String },
 }
@@ -90,11 +92,14 @@ pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, W
         }
     })?;
 
-    if !options.init {
-        let ward_path = root.join(".treeward");
-        if !ward_path.exists() {
-            return Err(WardError::NotInitialized);
-        }
+    let ward_path = root.join(".treeward");
+
+    if !options.init && !ward_path.exists() {
+        return Err(WardError::NotInitialized);
+    }
+
+    if options.init && ward_path.exists() {
+        return Err(WardError::AlreadyInitialized);
     }
 
     if let Some(expected_fingerprint) = &options.fingerprint {
@@ -310,13 +315,11 @@ mod tests {
             dry_run: false,
         };
 
-        let result = ward_directory(root, update_options).unwrap();
-
-        assert_eq!(result.files_warded, 1);
-
-        let ward = WardFile::load(&root.join(".treeward")).unwrap();
-        assert!(ward.entries.contains_key("file1.txt"));
-        assert!(ward.entries.contains_key("file2.txt"));
+        let result = ward_directory(root, update_options);
+        match result {
+            Err(WardError::AlreadyInitialized) => {}
+            _ => panic!("Expected AlreadyInitialized error"),
+        }
     }
 
     #[test]
