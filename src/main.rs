@@ -174,10 +174,11 @@ fn handle_verify(path: PathBuf) -> anyhow::Result<ExitCode> {
 
     print_statuses(&result.statuses);
 
-    anyhow::bail!(
-        "Verification failed: {} changes detected",
+    error!(
+        "Verification failed: {} change(s) detected",
         result.statuses.len()
     );
+    Ok(WardExitCode::status_unclean())
 }
 
 fn print_statuses(statuses: &[status::StatusEntry]) {
