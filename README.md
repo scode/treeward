@@ -7,6 +7,8 @@
 
 A command-line file integrity tool that maintains SHA-256 checksums and metadata for directory trees. Treeward uses a distributed approach where each directory contains a `.treeward` file tracking its immediate children, allowing directories to be moved independently while maintaining integrity information.
 
+(Aspirationally the intent is to add repair capability in the future.)
+
 ## Features
 
 - **Efficient incremental updates** - Only checksums files that are new or have changed metadata (mtime/size)
