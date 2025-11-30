@@ -166,6 +166,10 @@ pub struct Cli {
     #[arg(short = 'C', value_name = "DIRECTORY", global = true)]
     pub directory: Option<PathBuf>,
 
+    /// Increase verbosity (-v for info, -vv for debug)
+    #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count, global = true)]
+    pub verbose: u8,
+
     #[command(subcommand)]
     pub command: Command,
 }
