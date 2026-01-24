@@ -2,7 +2,8 @@
 
 ## Overview
 
-Add file repair capability using RaptorQ forward error correction. Users can protect files against data loss/corruption with configurable tolerance levels.
+Add file repair capability using RaptorQ forward error correction. Users can protect files against data loss/corruption
+with configurable tolerance levels.
 
 ## Key Design Decisions
 
@@ -22,7 +23,7 @@ version = 2
 
 [metadata.protection]
 enabled = true
-loss_tolerance = 10  # percentage
+loss_tolerance = 10 # percentage
 ```
 
 ### `.treeward-fec/<sha256>.fec` Format
@@ -50,6 +51,7 @@ Binary format with segmented FEC for large file support (never loads entire file
 ```
 
 Each segment is processed independently, allowing:
+
 - Streaming generation without loading full file
 - Per-segment repair (only read corrupted portions)
 - Per-segment FEC integrity verification
@@ -107,9 +109,11 @@ pub fn read_fec_file<R: Read>(reader: &mut R) -> Result<FecFile, FecError>;
 ## Implementation Steps
 
 ### Step 1: Add raptorq dependency
+
 - Add `raptorq = "2"` to `Cargo.toml`
 
 ### Step 2: Create `src/fec.rs` module
+
 - Implement `FecConfig`, `SegmentFec`, `FecFile`, `FecError` types
 - Implement `generate_fec_streaming()`: read file in segments, generate FEC per-segment
 - Implement `repair_segment()`: reconstruct single segment from corrupted data + FEC
@@ -119,12 +123,14 @@ pub fn read_fec_file<R: Read>(reader: &mut R) -> Result<FecFile, FecError>;
 - Unit tests with small segment sizes for fast execution
 
 ### Step 3: Update `src/ward_file.rs` for v2
+
 - Add `ProtectionSettings` struct to metadata
 - Update `SUPPORTED_VERSION` to 2
 - Add migration: v1 files parsed and auto-upgraded on write
 - Keep backward compatibility: v1 files readable, written as v2
 
 ### Step 4: Create `src/protection.rs` module
+
 - Manage `.treeward-fec/` directory
 - FEC file naming: `<sha256>.fec` (content-addressed)
 - Functions:
@@ -134,12 +140,14 @@ pub fn read_fec_file<R: Read>(reader: &mut R) -> Result<FecFile, FecError>;
   - `repair_file(path, sha256)` - attempt repair, return success/failure
 
 ### Step 5: Update `src/update.rs`
+
 - After checksumming a file, if directory has protection enabled:
   - Generate FEC data
   - Write to `.treeward-fec/<sha256>.fec`
 - Clean up orphaned FEC files (sha256 no longer in ward)
 
 ### Step 6: Update `src/status.rs`
+
 - When protection enabled, check FEC file exists for each protected file
 - New status: `MissingFec` (file exists, protection on, but no FEC data)
 - Verify FEC file checksum during `--always-verify`
@@ -147,17 +155,20 @@ pub fn read_fec_file<R: Read>(reader: &mut R) -> Result<FecFile, FecError>;
 ### Step 7: Add CLI commands in `src/cli.rs` and `src/main.rs`
 
 **`treeward protect [--loss-tolerance N]`**
+
 - Enable protection on current directory (recursive by default)
 - Set `metadata.protection.enabled = true` and `loss_tolerance = N`
 - Generate FEC for all existing files
 - Log warning if subdirectories have different loss_tolerance
 
 **`treeward unprotect`**
+
 - Disable protection on current directory
 - Delete `.treeward-fec/` directory
 - Set `metadata.protection.enabled = false`
 
 **`treeward repair [--dry-run]`**
+
 - For each file marked as Modified/corrupted by status check:
   - Load FEC data
   - Attempt repair
@@ -166,26 +177,28 @@ pub fn read_fec_file<R: Read>(reader: &mut R) -> Result<FecFile, FecError>;
 - Report: repaired, repair failed, no FEC available
 
 ### Step 8: Update `src/dir_list.rs`
+
 - Exclude `.treeward-fec/` from directory listings (like `.treeward`)
 
 ### Step 9: Automatic v1→v2 migration
+
 - Any write operation (`init`, `update`, `protect`) upgrades v1 to v2
 - Read operations accept both v1 and v2
 
 ## Files to Modify
 
-| File | Changes |
-|------|---------|
-| `Cargo.toml` | Add `raptorq = "2"` |
-| `src/lib.rs` | Add `mod fec; mod protection;` |
-| `src/fec.rs` | **New** - RaptorQ wrapper |
-| `src/protection.rs` | **New** - FEC file management |
-| `src/ward_file.rs` | v2 format, protection settings, migration |
-| `src/dir_list.rs` | Exclude `.treeward-fec/` |
-| `src/status.rs` | Check FEC existence, MissingFec status |
-| `src/update.rs` | Auto-generate FEC for protected files |
-| `src/cli.rs` | Add protect/unprotect/repair commands |
-| `src/main.rs` | Command handlers |
+| File                | Changes                                   |
+| ------------------- | ----------------------------------------- |
+| `Cargo.toml`        | Add `raptorq = "2"`                       |
+| `src/lib.rs`        | Add `mod fec; mod protection;`            |
+| `src/fec.rs`        | **New** - RaptorQ wrapper                 |
+| `src/protection.rs` | **New** - FEC file management             |
+| `src/ward_file.rs`  | v2 format, protection settings, migration |
+| `src/dir_list.rs`   | Exclude `.treeward-fec/`                  |
+| `src/status.rs`     | Check FEC existence, MissingFec status    |
+| `src/update.rs`     | Auto-generate FEC for protected files     |
+| `src/cli.rs`        | Add protect/unprotect/repair commands     |
+| `src/main.rs`       | Command handlers                          |
 
 ## Testing Strategy
 
