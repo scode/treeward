@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**treeward** is a command-line file integrity tool for checksumming and verifying trees of files. It uses a distributed approach where each directory contains a `.treeward` TOML file tracking its immediate children (non-recursive per-directory model), allowing directories to be moved independently while maintaining integrity information.
+**treeward** is a command-line file integrity tool for checksumming and verifying trees of files. It uses a distributed
+approach where each directory contains a `.treeward` TOML file tracking its immediate children (non-recursive
+per-directory model), allowing directories to be moved independently while maintaining integrity information.
 
 **Language:** Rust 2024 edition
 
@@ -39,9 +41,11 @@ cargo build --release
 
 ### Core Design Principles
 
-1. **Non-recursive directory model**: Each directory has its own `.treeward` file containing metadata only for its immediate children (files, subdirectories, symlinks). This allows directories to be moved independently.
+1. **Non-recursive directory model**: Each directory has its own `.treeward` file containing metadata only for its
+   immediate children (files, subdirectories, symlinks). This allows directories to be moved independently.
 
-2. **BTreeMap for entries**: All entry collections use `BTreeMap<String, EntryType>` for deterministic ordering and consistent serialization. This ensures stable TOML output.
+2. **BTreeMap for entries**: All entry collections use `BTreeMap<String, EntryType>` for deterministic ordering and
+   consistent serialization. This ensures stable TOML output.
 
 3. **Consistent naming across modules**:
    - Field name `symlink_target` (not `target`) for symlink destinations
@@ -57,9 +61,11 @@ cargo build --release
    - Permission errors are fatal errors
    - Never silently skip problems - all issues are reported as errors
 
-5. **Concurrent modification detection**: Before and after checksumming a file, compare mtime to detect changes during the read operation. If detected, return an error (no retry logic).
+5. **Concurrent modification detection**: Before and after checksumming a file, compare mtime to detect changes during
+   the read operation. If detected, return an error (no retry logic).
 
-6. **High-precision timestamps**: Use nanosecond-precision timestamps (`mtime_nanos` as `u64`) instead of `SystemTime` for accurate modification detection across all platforms.
+6. **High-precision timestamps**: Use nanosecond-precision timestamps (`mtime_nanos` as `u64`) instead of `SystemTime`
+   for accurate modification detection across all platforms.
 
 ### Module Structure
 
@@ -77,23 +83,27 @@ src/
 ### Key Data Flow
 
 **ward_file.rs** (persistent format):
+
 - `WardFile` contains `BTreeMap<String, WardEntry>`
 - `WardEntry` enum variants: `File { sha256, mtime_nanos, size }`, `Dir {}`, `Symlink { symlink_target }`
 - Serializes to/from TOML with deterministic ordering
 - Version-checked parsing (current version: 1)
 
 **dir_list.rs** (runtime representation):
+
 - `list_directory()` returns `BTreeMap<String, FsEntry>`
 - `FsEntry` enum variants: `File { mtime, size }`, `Dir { mtime }`, `Symlink { symlink_target }`
 - Excludes `.treeward` files from listings
 - No SHA-256 checksums (that's checksum.rs's job)
 
 **checksum.rs**:
+
 - `checksum_file()` computes SHA-256 with concurrent modification detection
 - Records mtime before and after reading file contents
 - Returns `FileChecksum { sha256, mtime, size }`
 
 **status.rs** (change detection):
+
 - `compute_status()` recursively compares filesystem state against ward files
 - Returns `StatusResult { changes, fingerprint }`
 - Supports three `ChecksumPolicy` modes:
@@ -104,6 +114,7 @@ src/
 - Fingerprint is SHA-256 hash of sorted changes (for TOCTOU protection)
 
 **update.rs** (ward creation/update):
+
 - `ward_directory()` creates or updates `.treeward` files
 - Supports `WardOptions { init, fingerprint, dry_run }`
 - Only checksums new or modified files (reuses checksums when metadata matches)
@@ -121,6 +132,7 @@ src/
 ### Symlink Handling
 
 Symlinks are tracked but NOT followed:
+
 - `symlink_target` field stores the raw symlink target path
 - Use `std::fs::symlink_metadata()` (not `metadata()`) to avoid following symlinks
 - Use `std::fs::read_link()` to read symlink targets
@@ -131,6 +143,7 @@ Symlinks are tracked but NOT followed:
 ### Data Consistency
 
 When adding or modifying entry types, ensure consistency between:
+
 1. `ward_file::WardEntry` (persistent TOML format)
 2. `dir_list::FsEntry` (runtime representation)
 3. Field names, especially `symlink_target` and `mtime_nanos`
@@ -152,10 +165,12 @@ When adding or modifying entry types, ensure consistency between:
 ### Recursive Tree Walking
 
 Multiple modules perform recursive directory traversal:
+
 - `status::walk_directory()`: Compares ward vs filesystem recursively
 - `update::walk_and_ward()`: Updates ward files recursively
 
 When implementing recursive operations:
+
 - Traverse both ward entries (for removed items) and filesystem entries (for added items)
 - Visit subdirectories found in either ward or filesystem
 - Each directory has its own `.treeward` file (non-recursive per-directory model)

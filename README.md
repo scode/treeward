@@ -2,10 +2,12 @@
 
 ![treeward demo](docs/demogif/demo.gif)
 
-> **treeward** (n.)
-> *A filesystem ward bound to a directory tree, keeping watch for corruption, silent edits, and other lurking horrors.*
+> **treeward** (n.) _A filesystem ward bound to a directory tree, keeping watch for corruption, silent edits, and other
+> lurking horrors._
 
-A command-line file integrity tool that maintains SHA-256 checksums and metadata for directory trees. Treeward uses a distributed approach where each directory contains a `.treeward` file tracking its immediate children, allowing directories to be moved independently while maintaining integrity information.
+A command-line file integrity tool that maintains SHA-256 checksums and metadata for directory trees. Treeward uses a
+distributed approach where each directory contains a `.treeward` file tracking its immediate children, allowing
+directories to be moved independently while maintaining integrity information.
 
 (Aspirationally the intent is to add repair capability in the future.)
 
@@ -14,8 +16,8 @@ A command-line file integrity tool that maintains SHA-256 checksums and metadata
 - **Efficient incremental updates** - Only checksums files that are new or have changed metadata (mtime/size)
 - **Fingerprint validation** - Prevents TOCTOU race conditions with cryptographic fingerprints
 - **Multiple verification modes** - Fast metadata checks, selective checksumming, or full integrity audits
-- **Distributed ward model** - Each directory tracks only its immediate children (non-recursive per-directory), allowing moving directories around
-as self-contained warded units.
+- **Distributed ward model** - Each directory tracks only its immediate children (non-recursive per-directory), allowing
+  moving directories around as self-contained warded units.
 - **Dry run support** - Preview what would be changed without writing any files
 - **Automation-friendly** - Clean exit codes and simple output for monitoring and CI/CD
 
@@ -24,6 +26,7 @@ as self-contained warded units.
 ```bash
 cargo install --path .
 ```
+
 ## Quick Start
 
 Initialize a directory tree:
@@ -59,7 +62,8 @@ treeward verify
 
 ### `init` - Initialize ward files
 
-Performs first-time initialization of `.treeward` files in a directory tree. Checksums all files and creates ward metadata.
+Performs first-time initialization of `.treeward` files in a directory tree. Checksums all files and creates ward
+metadata.
 
 ```bash
 # Initialize current directory
@@ -76,11 +80,13 @@ FP=$(treeward status | grep '^Fingerprint:' | cut -d' ' -f2)
 treeward init --fingerprint $FP
 ```
 
-**Note:** Fails if already initialized. Use `treeward update` for subsequent changes, or `treeward update --allow-init` for idempotent behavior.
+**Note:** Fails if already initialized. Use `treeward update` for subsequent changes, or `treeward update --allow-init`
+for idempotent behavior.
 
 ### `update` - Update ward files
 
-Updates existing `.treeward` files to reflect current state. Only checksums new or modified files (efficient for incremental changes).
+Updates existing `.treeward` files to reflect current state. Only checksums new or modified files (efficient for
+incremental changes).
 
 ```bash
 # Update current directory
@@ -101,6 +107,7 @@ treeward update --allow-init
 ```
 
 **Update modes:**
+
 - `treeward update` - Fails if not initialized (safe, explicit)
 - `treeward update --allow-init` - Works whether initialized or not (idempotent)
 
@@ -120,6 +127,7 @@ treeward status --always-verify
 ```
 
 **Change types:**
+
 - `Added` - New files, directories, or symlinks not in the ward
 - `Removed` - Entries in the ward that no longer exist
 - `PossiblyModified` - Files whose metadata (mtime/size) differs from ward
@@ -127,7 +135,8 @@ treeward status --always-verify
 
 **Fingerprints:**
 
-Every status check produces a unique fingerprint representing the exact changeset. Use it with `init --fingerprint` or `update --fingerprint` to ensure you're applying exactly the changes you reviewed:
+Every status check produces a unique fingerprint representing the exact changeset. Use it with `init --fingerprint` or
+`update --fingerprint` to ensure you're applying exactly the changes you reviewed:
 
 ```bash
 treeward status > review.txt
@@ -138,7 +147,8 @@ treeward update --fingerprint $FP
 
 ### `verify` - Comprehensive integrity check
 
-Verifies integrity of all files by checksumming everything and comparing against the ward. Designed for automation and monitoring.
+Verifies integrity of all files by checksumming everything and comparing against the ward. Designed for automation and
+monitoring.
 
 ```bash
 # Verify current directory
@@ -158,6 +168,7 @@ treeward -C ./dist verify && deploy.sh
 ```
 
 **Exit codes:**
+
 - `0` - All files match their wards (success)
 - `non-zero` - Changes detected or errors encountered (failure)
 
@@ -238,7 +249,8 @@ treeward update --allow-init
 
 ### Non-recursive per-directory model
 
-Each directory contains a `.treeward` TOML file with metadata only for its **immediate children** (files, subdirectories, symlinks). This allows:
+Each directory contains a `.treeward` TOML file with metadata only for its **immediate children** (files,
+subdirectories, symlinks). This allows:
 
 - Directories to be moved independently
 - Incremental verification of subdirectories
@@ -267,6 +279,7 @@ symlink_target = "target/path"
 ### Efficient incremental updates
 
 When updating, treeward:
+
 1. Compares filesystem metadata (mtime/size) against ward
 2. Only checksums files that are new or have changed metadata
 3. Reuses checksums for unchanged files
@@ -276,8 +289,9 @@ This makes subsequent updates very fast - only changed files are checksummed.
 
 ### Concurrent modification detection
 
-Before and after checksumming a file, treeward compares mtime to detect changes during the read operation. If detected, it returns an error (no retry logic). Note that detection can never be guaratneed and should be considered
-a courtesy best effort.
+Before and after checksumming a file, treeward compares mtime to detect changes during the read operation. If detected,
+it returns an error (no retry logic). Note that detection can never be guaratneed and should be considered a courtesy
+best effort.
 
 ### TOCTOU protection
 
@@ -287,7 +301,8 @@ Fingerprints prevent time-of-check-time-of-use race conditions:
 2. Review the changes
 3. Run `treeward update --fingerprint <FINGERPRINT>` to apply those exact changes
 
-If files change between status and update, the fingerprint won't match and the update fails without writing any ward files.
+If files change between status and update, the fingerprint won't match and the update fails without writing any ward
+files.
 
 ### Fingerprinting in depth
 
@@ -301,7 +316,8 @@ Fingerprints are SHA-256 hashes computed from the list of changes (path + status
 The `status` and `update`/`init` commands support the same verification flags:
 
 - Default (no flag): Only compare metadata (mtime/size). Files with changed metadata show as `M?` (PossiblyModified).
-- `--verify`: Checksum files whose metadata differs. Confirms whether content actually changed (`M`) or just metadata (`M?` upgrades to clean if unchanged).
+- `--verify`: Checksum files whose metadata differs. Confirms whether content actually changed (`M`) or just metadata
+  (`M?` upgrades to clean if unchanged).
 - `--always-verify`: Checksum all files regardless of metadata. Detects silent corruption.
 
 When using `--fingerprint`, you must use the same verification flags with both commands:
@@ -322,13 +338,15 @@ treeward update --fingerprint $FP  # Will fail!
 
 **Known quirk: content changes between status and update**
 
-When using default mode (no `--verify`), there's a subtle edge case. If a file's content actually changes between `status` and `update`:
+When using default mode (no `--verify`), there's a subtle edge case. If a file's content actually changes between
+`status` and `update`:
 
 - `status` (default) doesn't checksum, so it reports `M?` (PossiblyModified)
 - `update` (default) must checksum to build ward files, discovers the real change, reports `M` (Modified)
 - Fingerprints differ (`M?` vs `M`), update fails
 
-This is intentional safety behavior: you reviewed `M?` (possible change) but the actual change was `M` (confirmed modification). The fingerprint mismatch prevents accepting changes different from what you reviewed.
+This is intentional safety behavior: you reviewed `M?` (possible change) but the actual change was `M` (confirmed
+modification). The fingerprint mismatch prevents accepting changes different from what you reviewed.
 
 To avoid this, use `--verify` with both commands when you want status to also checksum and see the true state:
 
@@ -346,7 +364,8 @@ treeward update  # Always succeeds, no fingerprint check
 
 ## Design Principles
 
-1. **Non-recursive directory model** - Each directory has its own `.treeward` file containing metadata only for its immediate children
+1. **Non-recursive directory model** - Each directory has its own `.treeward` file containing metadata only for its
+   immediate children
 2. **Deterministic serialization** - `BTreeMap` ensures stable TOML output
 3. **Error handling philosophy** - Corrupted ward files and permission errors are fatal; never silently skip problems
 4. **High-precision timestamps** - Nanosecond-precision timestamps for accurate modification detection
@@ -356,9 +375,9 @@ treeward update  # Always succeeds, no fingerprint check
 
 Standard Rust idioms apply:
 
-* `cargo test`
-* `cargo fmt`
-* `cargo clippy -- -D warnings`
+- `cargo test`
+- `cargo fmt`
+- `cargo clippy -- -D warnings`
 
 ## License
 

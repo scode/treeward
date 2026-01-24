@@ -1,29 +1,29 @@
 [package]
 name = "treeward"
 version = "0.1.0"
-edition = "2024"
 authors = ["Peter Schuller <peter.schuller@infidyne.com>"]
-description = "A command line tool for checksumming and verifying trees of files"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yourusername/treeward"
+description = "A command line tool for checksumming and verifying trees of files"
 
 [dependencies]
 # The "asm" feature improves sha256 performance on a 2023 macbook pro
 # by ~ 5x (and is then roughly equal in speed to the sha256 cmdline
 # tool Apple provides).
-sha2 = { version = "0.10", features = ["asm"] }
-clap = { version = "4.5.53", features = ["derive"] }
-toml = "0.8"
-serde = { version = "1.0", features = ["derive"] }
-base64 = "0.22"
-thiserror = "2.0"
 anyhow = "1.0"
+base64 = "0.22"
+clap = { version = "4.5.53", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+sha2 = { version = "0.10", features = ["asm"] }
+tempfile = "3.13"
+thiserror = "2.0"
+toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
-tempfile = "3.13"
 
 [dev-dependencies]
 assert_cmd = "2.0"
-predicates = "3.1"
-nix = { version = "0.29", features = ["fs"] }
 filetime = "0.2"
+nix = { version = "0.29", features = ["fs"] }
+predicates = "3.1"
