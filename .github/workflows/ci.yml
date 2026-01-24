@@ -14,6 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check formatting with dprint
+        uses: dprint/check@v2.2
+
       - name: Install Rust toolchain
         run: |
           rustup update stable
