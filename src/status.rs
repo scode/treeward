@@ -66,8 +66,9 @@ pub enum StatusType {
 /// - `Modified`: Entry exists in both but differs. The `ward_entry` contains the
 ///   updated entry data reflecting the current filesystem state (if `WardUpdate` purpose).
 ///
-/// - `PossiblyModified`: Metadata differs but content was not checksummed (only occurs
-///   with `ChecksumPolicy::Never`). No `ward_entry` since we don't know the true state.
+/// - `PossiblyModified`: Metadata differs but content was not checksummed for status
+///   reporting purposes (only occurs with `ChecksumPolicy::Never`). The `ward_entry`
+///   may still be populated if `WardUpdate` purpose requires it.
 ///
 /// - `Unchanged`: Entry exists in both and matches. The `ward_entry` contains the
 ///   current entry data (if `WardUpdate` purpose), which may have updated metadata
@@ -87,6 +88,7 @@ pub enum StatusEntry {
     },
     PossiblyModified {
         path: String,
+        ward_entry: Option<WardEntry>,
     },
     Unchanged {
         path: String,
@@ -100,7 +102,7 @@ impl StatusEntry {
             StatusEntry::Added { path, .. } => path,
             StatusEntry::Removed { path } => path,
             StatusEntry::Modified { path, .. } => path,
-            StatusEntry::PossiblyModified { path } => path,
+            StatusEntry::PossiblyModified { path, .. } => path,
             StatusEntry::Unchanged { path, .. } => path,
         }
     }
@@ -110,8 +112,8 @@ impl StatusEntry {
             StatusEntry::Added { ward_entry, .. } => ward_entry.as_ref(),
             StatusEntry::Modified { ward_entry, .. } => ward_entry.as_ref(),
             StatusEntry::Unchanged { ward_entry, .. } => ward_entry.as_ref(),
+            StatusEntry::PossiblyModified { ward_entry, .. } => ward_entry.as_ref(),
             StatusEntry::Removed { .. } => None,
-            StatusEntry::PossiblyModified { .. } => None,
         }
     }
 
@@ -473,8 +475,13 @@ fn check_modification(
                     ward_entry,
                 });
             } else if metadata_differs && !need_checksum_for_status {
+                // Report PossiblyModified when the policy didn't require checksumming,
+                // even if we checksummed for ward building purposes. This ensures
+                // fingerprint consistency between status and update commands when
+                // using the same --verify/--always-verify flags.
                 statuses.push(StatusEntry::PossiblyModified {
                     path: relative_path,
+                    ward_entry,
                 });
             } else if mode == StatusMode::All || purpose == StatusPurpose::WardUpdate {
                 statuses.push(StatusEntry::Unchanged {

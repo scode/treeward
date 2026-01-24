@@ -289,6 +289,61 @@ Fingerprints prevent time-of-check-time-of-use race conditions:
 
 If files change between status and update, the fingerprint won't match and the update fails without writing any ward files.
 
+### Fingerprinting in depth
+
+Fingerprints are SHA-256 hashes computed from the list of changes (path + status type). They serve two purposes:
+
+1. **TOCTOU protection** - Ensure the changes you reviewed are exactly what gets applied
+2. **Idempotency check** - Detect when the filesystem has drifted from what you expected
+
+**Matching checksum policies**
+
+The `status` and `update`/`init` commands support the same verification flags:
+
+- Default (no flag): Only compare metadata (mtime/size). Files with changed metadata show as `M?` (PossiblyModified).
+- `--verify`: Checksum files whose metadata differs. Confirms whether content actually changed (`M`) or just metadata (`M?` upgrades to clean if unchanged).
+- `--always-verify`: Checksum all files regardless of metadata. Detects silent corruption.
+
+When using `--fingerprint`, you must use the same verification flags with both commands:
+
+```bash
+# Correct: both use --verify
+treeward status --verify
+treeward update --verify --fingerprint $FP
+
+# Correct: both use default (no flag)
+treeward status
+treeward update --fingerprint $FP
+
+# Wrong: mismatched flags cause fingerprint mismatch
+treeward status --verify
+treeward update --fingerprint $FP  # Will fail!
+```
+
+**Known quirk: content changes between status and update**
+
+When using default mode (no `--verify`), there's a subtle edge case. If a file's content actually changes between `status` and `update`:
+
+- `status` (default) doesn't checksum, so it reports `M?` (PossiblyModified)
+- `update` (default) must checksum to build ward files, discovers the real change, reports `M` (Modified)
+- Fingerprints differ (`M?` vs `M`), update fails
+
+This is intentional safety behavior: you reviewed `M?` (possible change) but the actual change was `M` (confirmed modification). The fingerprint mismatch prevents accepting changes different from what you reviewed.
+
+To avoid this, use `--verify` with both commands when you want status to also checksum and see the true state:
+
+```bash
+treeward status --verify
+treeward update --verify --fingerprint $FP
+```
+
+Or, if you don't need fingerprint validation, simply omit `--fingerprint`:
+
+```bash
+treeward status
+treeward update  # Always succeeds, no fingerprint check
+```
+
 ## Design Principles
 
 1. **Non-recursive directory model** - Each directory has its own `.treeward` file containing metadata only for its immediate children

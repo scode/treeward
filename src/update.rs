@@ -26,7 +26,9 @@ pub enum WardError {
     NotInitialized,
     #[error("Already initialized (use treeward update instead)")]
     AlreadyInitialized,
-    #[error("Fingerprint mismatch: expected {expected}, got {actual}")]
+    #[error(
+        "Fingerprint mismatch: expected {expected}, got {actual}. Ensure --verify/--always-verify flags match between status and init/update commands."
+    )]
     FingerprintMismatch { expected: String, actual: String },
 }
 
@@ -35,6 +37,7 @@ pub struct WardOptions {
     pub allow_init: bool,
     pub fingerprint: Option<String>,
     pub dry_run: bool,
+    pub checksum_policy: ChecksumPolicy,
 }
 
 #[derive(Debug)]
@@ -101,11 +104,12 @@ pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, W
         return Err(WardError::AlreadyInitialized);
     }
 
-    // Compute status with WardUpdate purpose to get complete ward entries
-    // and enable checksum reuse optimization
+    // Compute status with WardUpdate purpose to get complete ward entries.
+    // The checksum policy must match what was used with `status` command
+    // for fingerprint validation to work correctly.
     let status = compute_status(
         &root,
-        ChecksumPolicy::WhenPossiblyModified,
+        options.checksum_policy,
         StatusMode::All,
         StatusPurpose::WardUpdate,
     )?;
@@ -190,6 +194,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let result = ward_directory(root, options).unwrap();
@@ -218,6 +223,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let result = ward_directory(root, options);
@@ -241,6 +247,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         ward_directory(root, init_options).unwrap();
@@ -252,6 +259,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let result = ward_directory(root, update_options);
@@ -273,12 +281,15 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         ward_directory(root, init_options).unwrap();
 
         fs::write(root.join("file2.txt"), "content2").unwrap();
 
+        // Both status and update must use the same checksum policy for
+        // fingerprint validation to work correctly.
         let status = compute_status(
             root,
             ChecksumPolicy::WhenPossiblyModified,
@@ -292,10 +303,77 @@ mod tests {
             allow_init: false,
             fingerprint: Some(status.fingerprint.clone()),
             dry_run: false,
+            checksum_policy: ChecksumPolicy::WhenPossiblyModified,
         };
 
         let result = ward_directory(root, options);
         assert!(result.is_ok());
+    }
+
+    /// Tests that fingerprint from status with ChecksumPolicy::Never (the CLI
+    /// default) correctly matches what update computes.
+    ///
+    /// This reproduces a bug where:
+    /// 1. A file's mtime changes but content stays the same
+    /// 2. status (default) reports it as M? (PossiblyModified) in fingerprint
+    /// 3. update checksums it, finds it unchanged, computes different fingerprint
+    #[test]
+    fn test_fingerprint_validation_with_metadata_only_change() {
+        use filetime::{FileTime, set_file_mtime};
+
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(root.join("file1.txt"), "content1").unwrap();
+
+        let init_options = WardOptions {
+            init: true,
+            allow_init: false,
+            fingerprint: None,
+            dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
+        };
+
+        ward_directory(root, init_options).unwrap();
+
+        // Touch file1.txt to change mtime without changing content.
+        // This simulates .DS_Store files that macOS updates frequently.
+        set_file_mtime(
+            root.join("file1.txt"),
+            FileTime::from_unix_time(1000000000, 0),
+        )
+        .unwrap();
+
+        // Status with Never policy (CLI default) - file appears as M?
+        let status = compute_status(
+            root,
+            ChecksumPolicy::Never,
+            StatusMode::Interesting,
+            StatusPurpose::Display,
+        )
+        .unwrap();
+
+        assert_eq!(status.statuses.len(), 1);
+        assert!(matches!(
+            status.statuses[0],
+            StatusEntry::PossiblyModified { .. }
+        ));
+
+        // Update should accept this fingerprint
+        let options = WardOptions {
+            init: false,
+            allow_init: false,
+            fingerprint: Some(status.fingerprint.clone()),
+            dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
+        };
+
+        let result = ward_directory(root, options);
+        assert!(
+            result.is_ok(),
+            "Fingerprint from status (Never policy) should match update: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -310,6 +388,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         ward_directory(root, init_options).unwrap();
@@ -321,6 +400,7 @@ mod tests {
             allow_init: false,
             fingerprint: Some("wrong_fingerprint".to_string()),
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let result = ward_directory(root, options);
@@ -349,6 +429,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: true,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let result = ward_directory(root, options).unwrap();
@@ -373,6 +454,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: true,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let result = ward_directory(root, options).unwrap();
@@ -403,6 +485,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         ward_directory(root, init_options).unwrap();
@@ -419,6 +502,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let result = ward_directory(root, update_options).unwrap();
@@ -467,6 +551,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let result = ward_directory(root, options).unwrap();
@@ -504,6 +589,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let init_result = ward_directory(root, init_options).unwrap();
@@ -517,6 +603,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let update_result = ward_directory(root, update_options).unwrap();
@@ -535,6 +622,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let result = ward_directory(root, options).unwrap();
@@ -561,6 +649,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         ward_directory(root, init_options).unwrap();
@@ -573,6 +662,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let result = ward_directory(root, options);
@@ -602,6 +692,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let result = ward_directory(root, options);
@@ -632,6 +723,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         ward_directory(root, init_options).unwrap();
@@ -650,6 +742,7 @@ mod tests {
             allow_init: false,
             fingerprint: None,
             dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
         };
 
         let result = ward_directory(root, options);
