@@ -26,8 +26,11 @@ cargo test ward
 # Run with output visible (for debugging test failures)
 cargo test -- --nocapture
 
-# Format code
+# Format Rust code
 cargo fmt
+
+# Format markdown, json, toml (required by CI)
+dprint fmt
 
 # Lint
 cargo clippy -- -D warnings
@@ -124,10 +127,8 @@ src/
 
 ### Testing Strategy
 
-- Each module has comprehensive unit tests in a `tests` submodule
-- Use `tempfile` crate for filesystem-based tests
-- Tests cover happy paths, error cases, edge cases, and platform-specific behavior (Unix symlinks)
-- All tests must pass before merging changes
+- Each module has unit tests in a `tests` submodule using `tempfile` for filesystem tests
+- Symlink tests use `#[cfg(unix)]` for platform-specific behavior
 
 ### Symlink Handling
 
@@ -158,8 +159,6 @@ When adding or modifying entry types, ensure consistency between:
 ### TOML Serialization
 
 - Always use `BTreeMap` for entry collections to ensure stable output
-- TOML files should have `[metadata]` section with `version = 1`
-- Entries are stored as TOML tables: `[entries."filename"]`
 - Use `#[serde(deny_unknown_fields)]` to catch forward-compatibility issues
 
 ### Recursive Tree Walking
