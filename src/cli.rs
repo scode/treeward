@@ -271,13 +271,23 @@ EXAMPLES:
         #[arg(long)]
         allow_init: bool,
 
-        /// Only proceed if changes match this fingerprint from status
+        /// Only proceed if changes match this fingerprint from status.
+        /// When using this flag, ensure --verify/--always-verify flags match
+        /// those used with the status command that produced the fingerprint.
         #[arg(long, value_name = "FINGERPRINT")]
         fingerprint: Option<String>,
 
         /// Preview changes without writing ward files
         #[arg(long)]
         dry_run: bool,
+
+        /// Verify checksums for files whose metadata changed
+        #[arg(long)]
+        verify: bool,
+
+        /// Always verify checksums for all files
+        #[arg(long, conflicts_with = "verify")]
+        always_verify: bool,
     },
 
     /// Initialize ward files in a directory
@@ -390,13 +400,23 @@ EXAMPLES:
   $ treeward update
 ")]
     Init {
-        /// Only proceed if changes match this fingerprint from status
+        /// Only proceed if changes match this fingerprint from status.
+        /// When using this flag, ensure --verify/--always-verify flags match
+        /// those used with the status command that produced the fingerprint.
         #[arg(long, value_name = "FINGERPRINT")]
         fingerprint: Option<String>,
 
         /// Preview changes without writing ward files
         #[arg(long)]
         dry_run: bool,
+
+        /// Verify checksums for files whose metadata changed
+        #[arg(long)]
+        verify: bool,
+
+        /// Always verify checksums for all files
+        #[arg(long, conflicts_with = "verify")]
+        always_verify: bool,
     },
 
     /// Show status of files (added, removed, modified)

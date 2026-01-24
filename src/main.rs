@@ -58,11 +58,31 @@ fn main() -> ExitCode {
             allow_init,
             fingerprint,
             dry_run,
-        } => handle_ward(current_dir.clone(), false, allow_init, fingerprint, dry_run),
+            verify,
+            always_verify,
+        } => handle_ward(
+            current_dir.clone(),
+            false,
+            allow_init,
+            fingerprint,
+            dry_run,
+            verify,
+            always_verify,
+        ),
         Command::Init {
             fingerprint,
             dry_run,
-        } => handle_ward(current_dir.clone(), true, false, fingerprint, dry_run),
+            verify,
+            always_verify,
+        } => handle_ward(
+            current_dir.clone(),
+            true,
+            false,
+            fingerprint,
+            dry_run,
+            verify,
+            always_verify,
+        ),
         Command::Status {
             verify,
             always_verify,
@@ -86,12 +106,23 @@ fn handle_ward(
     allow_init: bool,
     fingerprint: Option<String>,
     dry_run: bool,
+    verify: bool,
+    always_verify: bool,
 ) -> anyhow::Result<ExitCode> {
+    let checksum_policy = if always_verify {
+        ChecksumPolicy::Always
+    } else if verify {
+        ChecksumPolicy::WhenPossiblyModified
+    } else {
+        ChecksumPolicy::Never
+    };
+
     let options = WardOptions {
         init,
         allow_init,
         fingerprint,
         dry_run,
+        checksum_policy,
     };
 
     let result = ward_directory(&path, options)?;
@@ -148,9 +179,16 @@ fn handle_status(
     if has_interesting_changes {
         println!();
         println!("Fingerprint: {}", result.fingerprint);
+        let verify_flag = if always_verify {
+            " --always-verify"
+        } else if verify {
+            " --verify"
+        } else {
+            ""
+        };
         info!(
-            "Run 'treeward init|update --fingerprint {}' to accept these changes and update the ward.",
-            result.fingerprint
+            "Run 'treeward init|update{} --fingerprint {}' to accept these changes and update the ward.",
+            verify_flag, result.fingerprint
         );
 
         Ok(WardExitCode::status_unclean())
