@@ -60,7 +60,7 @@ fn main() -> ExitCode {
             dry_run,
             verify,
             always_verify,
-        } => handle_ward(
+        } => handle_init_or_update(
             current_dir.clone(),
             false,
             allow_init,
@@ -74,7 +74,7 @@ fn main() -> ExitCode {
             dry_run,
             verify,
             always_verify,
-        } => handle_ward(
+        } => handle_init_or_update(
             current_dir.clone(),
             true,
             false,
@@ -100,7 +100,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn handle_ward(
+fn handle_init_or_update(
     path: PathBuf,
     init: bool,
     allow_init: bool,
