@@ -180,7 +180,9 @@ fn try_load_ward_file(path: &Path) -> Result<Option<WardFile>, WardFileError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checksum::checksum_file;
     use std::fs;
+    #[cfg(unix)]
     use std::os::unix;
     use tempfile::TempDir;
 
@@ -419,6 +421,150 @@ mod tests {
         }
 
         assert!(!root.join("file2.txt").join(".treeward").exists());
+    }
+
+    /// Tests TOCTOU protection: if a new file appears between `status` and `update`,
+    /// the fingerprint mismatch is caught and update fails without writing.
+    ///
+    /// The fingerprint captures the set of changes (path + status type). If the
+    /// filesystem state changes between status and update (e.g., new file added),
+    /// the fingerprint won't match and update fails atomically.
+    ///
+    /// This validates the intentional ordering where fingerprint validation happens
+    /// AFTER computing the new ward state.
+    #[test]
+    fn test_fingerprint_catches_new_file_between_status_and_update() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(root.join("file1.txt"), "content1").unwrap();
+
+        let init_options = WardOptions {
+            init: true,
+            allow_init: false,
+            fingerprint: None,
+            dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
+        };
+        ward_directory(root, init_options).unwrap();
+
+        // Modify file1 - this is the change the user will review with status
+        fs::write(root.join("file1.txt"), "modified").unwrap();
+
+        // User runs status and gets fingerprint (shows file1 as Modified)
+        let status = compute_status(
+            root,
+            ChecksumPolicy::WhenPossiblyModified,
+            StatusMode::Interesting,
+            StatusPurpose::Display,
+        )
+        .unwrap();
+        assert_eq!(status.statuses.len(), 1);
+        let fingerprint_at_status_time = status.fingerprint.clone();
+
+        // NEW file appears between status and update (simulating race condition)
+        fs::write(root.join("file2.txt"), "sneaky new file").unwrap();
+
+        // Update with the fingerprint from earlier status should FAIL
+        // because a new file appeared
+        let update_options = WardOptions {
+            init: false,
+            allow_init: false,
+            fingerprint: Some(fingerprint_at_status_time),
+            dry_run: false,
+            checksum_policy: ChecksumPolicy::WhenPossiblyModified,
+        };
+
+        let result = ward_directory(root, update_options);
+        assert!(
+            matches!(result, Err(WardError::FingerprintMismatch { .. })),
+            "Update should fail when new file appeared after status: {:?}",
+            result
+        );
+
+        // Verify the ward file still has the OLD state - file2.txt should NOT be tracked
+        let ward = WardFile::load(&root.join(".treeward")).unwrap();
+        assert!(
+            !ward.entries.contains_key("file2.txt"),
+            "New file should not be in ward after failed update"
+        );
+        // file1.txt should still have original checksum (no writes occurred)
+        // Compute expected checksum using a temp file
+        let temp_for_checksum = TempDir::new().unwrap();
+        let checksum_path = temp_for_checksum.path().join("temp");
+        fs::write(&checksum_path, "content1").unwrap();
+        let original_checksum = checksum_file(&checksum_path).unwrap();
+
+        match ward.entries.get("file1.txt").unwrap() {
+            WardEntry::File { sha256, .. } => {
+                assert_eq!(
+                    sha256, &original_checksum.sha256,
+                    "file1.txt should still have original checksum after failed update"
+                );
+            }
+            _ => panic!("Expected File entry"),
+        }
+    }
+
+    /// Tests TOCTOU protection: if a file is deleted between `status` and `update`,
+    /// the fingerprint mismatch is caught and update fails without writing.
+    #[test]
+    fn test_fingerprint_catches_deleted_file_between_status_and_update() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        fs::write(root.join("file1.txt"), "content1").unwrap();
+        fs::write(root.join("file2.txt"), "content2").unwrap();
+
+        let init_options = WardOptions {
+            init: true,
+            allow_init: false,
+            fingerprint: None,
+            dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
+        };
+        ward_directory(root, init_options).unwrap();
+
+        // Modify both files - user will review this with status
+        fs::write(root.join("file1.txt"), "modified1").unwrap();
+        fs::write(root.join("file2.txt"), "modified2").unwrap();
+
+        // User runs status and gets fingerprint (shows both files as Modified)
+        let status = compute_status(
+            root,
+            ChecksumPolicy::WhenPossiblyModified,
+            StatusMode::Interesting,
+            StatusPurpose::Display,
+        )
+        .unwrap();
+        assert_eq!(status.statuses.len(), 2);
+        let fingerprint_at_status_time = status.fingerprint.clone();
+
+        // file2 is DELETED between status and update (simulating race condition)
+        fs::remove_file(root.join("file2.txt")).unwrap();
+
+        // Update with the fingerprint from earlier status should FAIL
+        let update_options = WardOptions {
+            init: false,
+            allow_init: false,
+            fingerprint: Some(fingerprint_at_status_time),
+            dry_run: false,
+            checksum_policy: ChecksumPolicy::WhenPossiblyModified,
+        };
+
+        let result = ward_directory(root, update_options);
+        assert!(
+            matches!(result, Err(WardError::FingerprintMismatch { .. })),
+            "Update should fail when file deleted after status: {:?}",
+            result
+        );
+
+        // Verify ward file unchanged - file2.txt should still be tracked
+        let ward = WardFile::load(&root.join(".treeward")).unwrap();
+        assert!(
+            ward.entries.contains_key("file2.txt"),
+            "Deleted file should still be in ward after failed update"
+        );
     }
 
     #[test]
