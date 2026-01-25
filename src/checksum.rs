@@ -176,4 +176,60 @@ mod tests {
             _ => panic!("Expected PermissionDenied error for permission denied"),
         }
     }
+
+    #[test]
+    fn test_checksum_concurrent_modification() {
+        // This test is inherently non-deterministic and may occasionally fail due to timing.
+        // The concurrent modification detection requires the mtime to change between the
+        // pre-read and post-read metadata checks, which we achieve by racing a background
+        // thread against the checksum operation. A deterministic test would require
+        // refactoring checksum_file to accept an injected reader or hook, which adds
+        // complexity to production code for test-only benefit. In practice, with a 5MB
+        // file and 100 attempts, failure is extremely unlikely.
+        use filetime::{FileTime, set_file_mtime};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::thread;
+        use std::time::Duration;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let content = vec![b'X'; 5 * 1024 * 1024];
+        temp_file.write_all(&content).unwrap();
+        temp_file.flush().unwrap();
+
+        let path = temp_file.path().to_path_buf();
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let stop_flag_clone = stop_flag.clone();
+
+        let modifier_handle = thread::spawn(move || {
+            let mut counter = 0u64;
+            while !stop_flag_clone.load(Ordering::Relaxed) {
+                counter = counter.wrapping_add(1);
+                let mtime = FileTime::from_unix_time(1_000_000_000 + (counter as i64), 0);
+                let _ = set_file_mtime(&path, mtime);
+            }
+        });
+
+        let mut got_concurrent_modification = false;
+        for _ in 0..100 {
+            match checksum_file(temp_file.path()) {
+                Err(ChecksumError::ConcurrentModification(_)) => {
+                    got_concurrent_modification = true;
+                    break;
+                }
+                Ok(_) => {
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Err(e) => panic!("Unexpected error: {}", e),
+            }
+        }
+
+        stop_flag.store(true, Ordering::Relaxed);
+        modifier_handle.join().unwrap();
+
+        assert!(
+            got_concurrent_modification,
+            "Expected to detect concurrent modification at least once in 100 attempts"
+        );
+    }
 }
