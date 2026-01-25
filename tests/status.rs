@@ -24,6 +24,39 @@ fn status_reports_no_changes_after_initial_ward() {
         .stdout(predicate::str::is_empty());
 }
 
+/// Verifies that removed files are displayed with "R" status code.
+#[test]
+fn status_shows_removed_files() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+    fs::write(temp.path().join("to_remove.txt"), "will be removed").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("init")
+        .assert()
+        .success();
+
+    fs::remove_file(temp.path().join("to_remove.txt")).unwrap();
+
+    let output = cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("status")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("R to_remove.txt"));
+    assert!(stdout.contains("Fingerprint:"));
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "status should exit with code 1 for unclean tree"
+    );
+}
+
 #[test]
 fn status_shows_added_files_and_fingerprint() {
     let temp = TempDir::new().unwrap();
