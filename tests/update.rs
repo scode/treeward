@@ -18,6 +18,8 @@ fn update_without_init_fails() {
         .stderr(predicate::str::contains("Not initialized"));
 }
 
+/// Tests that update with --fingerprint succeeds when fingerprint matches.
+/// Uses --verify on both status and update to ensure consistent fingerprints.
 #[test]
 fn update_respects_fingerprint() {
     let temp = TempDir::new().unwrap();
@@ -47,10 +49,12 @@ fn update_respects_fingerprint() {
     let output_str = String::from_utf8(status_output.stdout).unwrap();
     let fingerprint = extract_fingerprint(&output_str);
 
+    // Must use same --verify flag as status to get matching fingerprint
     cargo_bin_cmd!("treeward")
         .arg("-C")
         .arg(temp.path())
         .arg("update")
+        .arg("--verify")
         .arg("--fingerprint")
         .arg(&fingerprint)
         .assert()
@@ -260,12 +264,13 @@ fn update_default_matches_status_default_fingerprint_metadata_only() {
         .success();
 }
 
-/// When content actually changes, status (default) reports M? because it doesn't
-/// checksum. Update must checksum to build ward entries, discovers the real change,
-/// and reports M. The fingerprint mismatch is intentional TOCTOU protection - the
-/// user reviewed M? but the actual change was M.
+/// When content actually changes and both status and update use default policy
+/// (no --verify), fingerprints match because both report M? (PossiblyModified).
+/// The policy controls what is *reported* for fingerprint purposes, not what is
+/// computed internally. Update still checksums for ward building, but reports M?
+/// for fingerprint consistency.
 #[test]
-fn update_default_fails_when_content_actually_changed() {
+fn update_default_succeeds_when_fingerprints_match() {
     let temp = TempDir::new().unwrap();
     let file_path = temp.path().join("file.txt");
     fs::write(&file_path, "hello").unwrap();
@@ -291,7 +296,7 @@ fn update_default_fails_when_content_actually_changed() {
     assert!(output_str.contains("M?"));
     let fingerprint = extract_fingerprint(&output_str);
 
-    // Update with default discovers the actual modification and fails fingerprint
+    // Update with default (no --verify) also reports M?, fingerprints match
     cargo_bin_cmd!("treeward")
         .arg("-C")
         .arg(temp.path())
@@ -299,9 +304,7 @@ fn update_default_fails_when_content_actually_changed() {
         .arg("--fingerprint")
         .arg(&fingerprint)
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("Fingerprint mismatch"))
-        .stderr(predicate::str::contains("--verify"));
+        .success();
 }
 
 /// Tests that mismatched verification flags cause fingerprint mismatch when

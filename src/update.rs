@@ -88,8 +88,8 @@ pub struct WardResult {
 ///
 /// # Returns
 ///
-/// * `files_warded` - Number of files that were added or had content changes (excludes files
-///   that were checksummed but found to be unchanged, and excludes directories/symlinks)
+/// * `files_warded` - Number of files that were checksummed for the ward file (added,
+///   modified, or possibly modified; excludes unchanged files and directories/symlinks)
 /// * `ward_files_updated` - Relative paths of `.treeward` files that were written
 pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, WardError> {
     let root = root.to_path_buf();
@@ -147,12 +147,16 @@ pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, W
         }
     }
 
-    // Count files that were actually checksummed (Added or Modified files only, not dirs/symlinks)
+    // Count files that were checksummed for the ward file. This includes Added, Modified,
+    // and PossiblyModified (which are checksummed for ward building even though the status
+    // is reported as PossiblyModified for fingerprint consistency with ChecksumPolicy::Never).
     let files_warded = status
         .statuses
         .iter()
         .filter(|s| match s {
-            StatusEntry::Added { ward_entry, .. } | StatusEntry::Modified { ward_entry, .. } => {
+            StatusEntry::Added { ward_entry, .. }
+            | StatusEntry::Modified { ward_entry, .. }
+            | StatusEntry::PossiblyModified { ward_entry, .. } => {
                 matches!(ward_entry, Some(crate::ward_file::WardEntry::File { .. }))
             }
             _ => false,

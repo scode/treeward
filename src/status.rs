@@ -469,17 +469,17 @@ fn check_modification(
                 None
             };
 
-            if sha256_differs {
-                statuses.push(StatusEntry::Modified {
+            if metadata_differs && !need_checksum_for_status {
+                // Policy says don't checksum for status reporting, so report
+                // PossiblyModified regardless of whether we checksummed for ward
+                // building. This ensures fingerprint consistency between status
+                // and ward commands when using the same --verify/--always-verify flags.
+                statuses.push(StatusEntry::PossiblyModified {
                     path: relative_path,
                     ward_entry,
                 });
-            } else if metadata_differs && !need_checksum_for_status {
-                // Report PossiblyModified when the policy didn't require checksumming,
-                // even if we checksummed for ward building purposes. This ensures
-                // fingerprint consistency between status and update commands when
-                // using the same --verify/--always-verify flags.
-                statuses.push(StatusEntry::PossiblyModified {
+            } else if sha256_differs {
+                statuses.push(StatusEntry::Modified {
                     path: relative_path,
                     ward_entry,
                 });
@@ -1808,7 +1808,7 @@ mod tests {
 
     /// Verifies that `StatusPurpose::WardUpdate` populates `ward_entry` for all non-Removed entries.
     ///
-    /// When computing status to update ward files (e.g., `treeward ward`), we need complete
+    /// When computing status to update ward files (e.g., `treeward update`), we need complete
     /// `WardEntry` data including checksums for every file that will be written to `.treeward`.
     /// This data comes from `ward_entry` in each `StatusEntry`.
     ///
@@ -2102,6 +2102,88 @@ mod tests {
                 assert_eq!(*size, real_checksum.size);
                 // mtime should be updated to current value, not the old 1000
                 assert_ne!(*mtime_nanos, 1000);
+            }
+            _ => panic!("Expected File entry"),
+        }
+    }
+
+    /// Verifies fingerprint consistency when both metadata AND content differ.
+    ///
+    /// This is the critical test for the bug where `ChecksumPolicy::Never` +
+    /// `StatusPurpose::WardUpdate` would incorrectly report `Modified` instead of
+    /// `PossiblyModified` when content actually changed.
+    ///
+    /// The scenario:
+    /// - `treeward status` (Display, Never): metadata differs → PossiblyModified (M?)
+    /// - `treeward update` (WardUpdate, Never): checksums for ward, finds content differs
+    ///
+    /// Without the fix, ward would report Modified (M) because sha256_differs was
+    /// checked before the policy condition. This would cause fingerprint mismatch
+    /// between status and ward, breaking `--fingerprint` validation flows.
+    ///
+    /// The fix ensures policy controls *reporting* regardless of whether we checksummed
+    /// internally for ward building purposes.
+    #[test]
+    fn test_checksum_policy_never_with_ward_update_content_also_differs() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        // File has different content than what's in the ward
+        fs::write(root.join("file.txt"), "new content").unwrap();
+
+        // Ward has old checksum AND old mtime - both metadata and content differ
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "file.txt".to_string(),
+            WardEntry::File {
+                sha256: "old_checksum_that_doesnt_match".to_string(),
+                mtime_nanos: 1000,
+                size: 50,
+            },
+        );
+        create_ward_file(root, entries);
+
+        // With Display purpose: would report PossiblyModified (no checksumming)
+        let display_result = compute_status(
+            root,
+            ChecksumPolicy::Never,
+            StatusMode::Interesting,
+            StatusPurpose::Display,
+        )
+        .unwrap();
+        assert_eq!(display_result.statuses.len(), 1);
+        assert_eq!(
+            display_result.statuses[0].status_type(),
+            StatusType::PossiblyModified
+        );
+
+        // With WardUpdate purpose: must ALSO report PossiblyModified for fingerprint consistency
+        let ward_result = compute_status(
+            root,
+            ChecksumPolicy::Never,
+            StatusMode::Interesting,
+            StatusPurpose::WardUpdate,
+        )
+        .unwrap();
+        assert_eq!(ward_result.statuses.len(), 1);
+        assert_eq!(
+            ward_result.statuses[0].status_type(),
+            StatusType::PossiblyModified,
+            "WardUpdate with policy=Never must report PossiblyModified even when content differs"
+        );
+
+        // Fingerprints must match
+        assert_eq!(
+            display_result.fingerprint, ward_result.fingerprint,
+            "Fingerprints must match between Display and WardUpdate with same policy"
+        );
+
+        // But ward_entry should still have the correct (freshly computed) checksum
+        let real_checksum = checksum_file(&root.join("file.txt")).unwrap();
+        match ward_result.statuses[0].ward_entry().unwrap() {
+            WardEntry::File { sha256, size, .. } => {
+                assert_eq!(sha256, &real_checksum.sha256);
+                assert_eq!(*size, real_checksum.size);
             }
             _ => panic!("Expected File entry"),
         }
