@@ -336,26 +336,26 @@ treeward status --verify
 treeward update --fingerprint $FP  # Will fail!
 ```
 
-**Known quirk: content changes between status and update**
+**Why matching flags matter**
 
-When using default mode (no `--verify`), there's a subtle edge case. If a file's content actually changes between
-`status` and `update`:
+The verification flags control what status type is _reported_ for fingerprint purposes. This is separate from what
+treeward computes internally:
 
-- `status` (default) doesn't checksum, so it reports `M?` (PossiblyModified)
-- `update` (default) must checksum to build ward files, discovers the real change, reports `M` (Modified)
-- Fingerprints differ (`M?` vs `M`), update fails
+- `status` (default) reports `M?` for files with changed metadata, without checksumming
+- `update` (default) internally checksums files to build ward entries, but still _reports_ `M?` for fingerprint
+  consistency
 
-This is intentional safety behavior: you reviewed `M?` (possible change) but the actual change was `M` (confirmed
-modification). The fingerprint mismatch prevents accepting changes different from what you reviewed.
+This design ensures fingerprints match between `status` and `update` when using the same flags, even though `update`
+does more work internally. The fingerprint reflects what you reviewed, not the internal computation.
 
-To avoid this, use `--verify` with both commands when you want status to also checksum and see the true state:
+If you use mismatched flags, fingerprints will differ because the reported status types differ:
 
 ```bash
-treeward status --verify
-treeward update --verify --fingerprint $FP
+treeward status --verify    # Reports M (checksummed, confirmed change)
+treeward update --fingerprint $FP  # Reports M? (default mode), fingerprint mismatch!
 ```
 
-Or, if you don't need fingerprint validation, simply omit `--fingerprint`:
+If you don't need fingerprint validation, simply omit `--fingerprint`:
 
 ```bash
 treeward status
