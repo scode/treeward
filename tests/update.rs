@@ -2,6 +2,8 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use filetime::{FileTime, set_file_mtime};
 use predicates::prelude::*;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use tempfile::TempDir;
 
 #[test]
@@ -430,4 +432,43 @@ fn update_allow_init_is_idempotent() {
         .arg("verify")
         .assert()
         .success();
+}
+
+/// Verifies that `update` exits with code 255 on errors (e.g., permission denied).
+#[test]
+#[cfg(unix)]
+fn update_exits_code_255_on_permission_error() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("init")
+        .assert()
+        .success();
+
+    fs::write(temp.path().join("file.txt"), "modified").unwrap();
+
+    // Remove write permission so .treeward can't be updated
+    let mut perms = fs::metadata(temp.path()).unwrap().permissions();
+    perms.set_mode(0o555);
+    fs::set_permissions(temp.path(), perms.clone()).unwrap();
+
+    let output = cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("update")
+        .output()
+        .unwrap();
+
+    // Restore permissions for cleanup
+    perms.set_mode(0o755);
+    fs::set_permissions(temp.path(), perms).unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(255),
+        "update should exit with code 255 on permission error"
+    );
 }
