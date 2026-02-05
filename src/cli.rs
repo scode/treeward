@@ -108,7 +108,7 @@ COMMON USE CASES:
 KEY FEATURES:
 
   Efficient incremental updates:
-    Only checksums files that are new or have changed metadata (mtime/size).
+    By default, only checksums files that are new or have changed metadata (mtime/size).
     Subsequent updates after initialization are very fast.
 
   Fingerprint validation:
@@ -205,7 +205,7 @@ EFFICIENCY:
 
 The update process meant to be efficient for incremental changes:
 
-  - Only checksums files that are new or have changed metadata (mtime/size)
+  - By default, only checksums files that are new or have changed metadata (mtime/size)
   - Files with matching metadata reuse checksums from existing ward files
   - Only rewrites .treeward files if their contents actually changed
   - Preserves mtimes of unchanged ward files
