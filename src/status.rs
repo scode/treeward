@@ -44,11 +44,14 @@ pub enum StatusType {
 ///
 /// Some variants carry an `Option<WardEntry>` field. This represents the complete ward
 /// data (checksum, metadata) for the entry, but it is only populated when the caller
-/// needs it - specifically when `StatusPurpose::WardUpdate` is used.
+/// needs it - specifically when `StatusPurpose::WardUpdate` is used. When
+/// `DiffMode::Capture` is enabled, modified entries may also include `ward_entry`
+/// to show new values in diffs.
 ///
 /// The `Option` exists because computing a `WardEntry` for files requires checksumming,
 /// which is expensive. When status is computed for display purposes only
-/// (`StatusPurpose::Display`), we skip checksumming and set `ward_entry: None`.
+/// (`StatusPurpose::Display`), we skip checksumming and set `ward_entry: None`,
+/// except in diff mode where modified entries include new values for display.
 /// When status is computed to update ward files (`StatusPurpose::WardUpdate`), we
 /// compute the full checksum and populate `ward_entry: Some(...)`.
 ///
@@ -152,9 +155,11 @@ pub enum ChecksumPolicy {
 pub enum StatusPurpose {
     /// Display status to user.
     ///
-    /// `StatusEntry` variants will have `ward_entry: None`. Checksumming is
-    /// controlled entirely by `ChecksumPolicy` (to determine Modified vs
-    /// PossiblyModified), but the checksum result is not retained.
+    /// `StatusEntry` variants will usually have `ward_entry: None`. When
+    /// `DiffMode::Capture` is enabled, modified entries include `ward_entry`
+    /// to show new values in diffs. Checksumming is controlled entirely by
+    /// `ChecksumPolicy` (to determine Modified vs PossiblyModified), but the
+    /// checksum result is not retained otherwise.
     Display,
 
     /// Generate ward files - populate `ward_entry` with complete data.
