@@ -88,9 +88,11 @@ pub struct WardResult {
 ///
 /// # Returns
 ///
-/// * `files_warded` - Number of files that were checksummed for the ward file (added,
-///   modified, or possibly modified; excludes unchanged files and directories/symlinks)
-/// * `ward_files_updated` - Relative paths of `.treeward` files that were written
+/// * `files_warded` - Number of files that required checksumming for ward entries (added,
+///   modified, or possibly modified; excludes unchanged files and directories/symlinks).
+///   Unchanged files may still be checksummed when using `--always-verify`.
+/// * `ward_files_updated` - Relative paths of `.treeward` files that were written (or
+///   would be written in dry-run mode)
 pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, WardError> {
     let root = root.to_path_buf();
 
