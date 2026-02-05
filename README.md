@@ -263,16 +263,16 @@ Example `.treeward` file:
 version = 1
 
 [entries."README.md"]
-type = "File"
+type = "file"
 sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 mtime_nanos = 1234567890123456789
 size = 1024
 
 [entries."src"]
-type = "Dir"
+type = "dir"
 
 [entries."link"]
-type = "Symlink"
+type = "symlink"
 symlink_target = "target/path"
 ```
 
