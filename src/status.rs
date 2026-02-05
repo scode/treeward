@@ -27,8 +27,8 @@ pub enum StatusError {
 pub enum StatusType {
     Added,
     Removed,
-    /// File metadata differs but a content time has NOT been confirmed
-    /// through checksumming.
+    /// File metadata differs but a content change has NOT been confirmed
+    /// for reporting purposes (even if checksummed for ward updates).
     PossiblyModified,
     Modified,
     Unchanged,
@@ -70,8 +70,8 @@ pub enum StatusType {
 ///   updated entry data reflecting the current filesystem state (if `WardUpdate` purpose).
 ///
 /// - `PossiblyModified`: Metadata differs but content was not checksummed for status
-///   reporting purposes (only occurs with `ChecksumPolicy::Never`). The `ward_entry`
-///   may still be populated if `WardUpdate` purpose requires it.
+///   reporting purposes (only occurs with `ChecksumPolicy::Never`). When building
+///   ward updates, content may still be checksummed to populate `ward_entry`.
 ///
 /// - `Unchanged`: Entry exists in both and matches. The `ward_entry` contains the
 ///   current entry data (if `WardUpdate` purpose), which may have updated metadata
