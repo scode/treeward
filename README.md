@@ -13,7 +13,8 @@ directories to be moved independently while maintaining integrity information.
 
 ## Features
 
-- **Efficient incremental updates** - Only checksums files that are new or have changed metadata (mtime/size)
+- **Efficient incremental updates** - By default, only checksums files that are new or have changed metadata
+  (mtime/size)
 - **Fingerprint validation** - Prevents TOCTOU race conditions with cryptographic fingerprints
 - **Multiple verification modes** - Fast metadata checks, selective checksumming, or full integrity audits
 - **Distributed ward model** - Each directory tracks only its immediate children (non-recursive per-directory), allowing
@@ -233,8 +234,8 @@ fi
 ```yaml
 - name: Verify build artifacts
   run: |
-    treeward -C ./dist init
     # ... build process ...
+    treeward -C ./dist update --allow-init
     treeward -C ./dist verify
 ```
 
@@ -281,11 +282,12 @@ symlink_target = "target/path"
 When updating, treeward:
 
 1. Compares filesystem metadata (mtime/size) against ward
-2. Only checksums files that are new or have changed metadata
+2. By default, only checksums files that are new or have changed metadata
 3. Reuses checksums for unchanged files
 4. Only rewrites `.treeward` files if contents changed
 
-This makes subsequent updates very fast - only changed files are checksummed.
+This makes subsequent updates very fast - only changed files are checksummed by default. With `--always-verify`,
+initialization and updates checksum every file.
 
 ### Concurrent modification detection
 
