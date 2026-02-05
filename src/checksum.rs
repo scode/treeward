@@ -17,7 +17,7 @@ pub enum ChecksumError {
 pub struct FileChecksum {
     /// Hex encoded.
     pub sha256: String,
-    /// Modification time captured after checksumming (guaranteed stable during checksum).
+    /// Modification time captured after checksumming.
     pub mtime: std::time::SystemTime,
     /// File size in bytes.
     pub size: u64,

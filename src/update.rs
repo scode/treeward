@@ -1,8 +1,8 @@
 use crate::checksum::ChecksumError;
 use crate::dir_list::DirListError;
 use crate::status::{
-    ChecksumPolicy, StatusEntry, StatusError, StatusMode, StatusPurpose, build_ward_files,
-    compute_status,
+    ChecksumPolicy, DiffMode, StatusEntry, StatusError, StatusMode, StatusPurpose,
+    build_ward_files, compute_status,
 };
 #[cfg(test)]
 use crate::ward_file::WardEntry;
@@ -114,6 +114,7 @@ pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, W
         options.checksum_policy,
         StatusMode::All,
         StatusPurpose::WardUpdate,
+        DiffMode::None,
     )?;
 
     // Build ward files in memory from status result
@@ -303,6 +304,7 @@ mod tests {
             ChecksumPolicy::WhenPossiblyModified,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
 
@@ -358,6 +360,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
 
@@ -459,6 +462,7 @@ mod tests {
             ChecksumPolicy::WhenPossiblyModified,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(status.statuses.len(), 1);
@@ -537,6 +541,7 @@ mod tests {
             ChecksumPolicy::WhenPossiblyModified,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(status.statuses.len(), 2);
@@ -787,7 +792,7 @@ mod tests {
     }
 
     /// The init option should only be required when the top-level directory
-    /// operated upon lacks a .wardtree file. This ensures we do not fail
+    /// operated upon lacks a .treeward file. This ensures we do not fail
     /// when subdirectories are new.
     #[test]
     fn test_new_subdirectory_without_init() {

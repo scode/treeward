@@ -1,5 +1,6 @@
 mod checksum;
 mod cli;
+mod diffing;
 mod dir_list;
 mod status;
 mod update;
@@ -19,6 +20,24 @@ use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
 use update::{WardOptions, ward_directory};
+
+fn checksum_policy_from_flags(always_verify: bool, verify: bool) -> ChecksumPolicy {
+    match (always_verify, verify) {
+        (true, _) => ChecksumPolicy::Always,
+        (_, true) => ChecksumPolicy::WhenPossiblyModified,
+        _ => ChecksumPolicy::Never,
+    }
+}
+
+fn follow_up_verify_flag(always_verify: bool, verify: bool, diff: bool) -> &'static str {
+    if always_verify {
+        " --always-verify"
+    } else if verify || diff {
+        " --verify"
+    } else {
+        ""
+    }
+}
 
 struct WardExitCode;
 
@@ -87,7 +106,8 @@ fn main() -> ExitCode {
             verify,
             always_verify,
             all,
-        } => handle_status(current_dir.clone(), verify, always_verify, all),
+            diff,
+        } => handle_status(current_dir.clone(), verify, always_verify, all, diff),
         Command::Verify {} => handle_verify(current_dir),
     };
 
@@ -109,20 +129,12 @@ fn handle_init_or_update(
     verify: bool,
     always_verify: bool,
 ) -> anyhow::Result<ExitCode> {
-    let checksum_policy = if always_verify {
-        ChecksumPolicy::Always
-    } else if verify {
-        ChecksumPolicy::WhenPossiblyModified
-    } else {
-        ChecksumPolicy::Never
-    };
-
     let options = WardOptions {
         init,
         allow_init,
         fingerprint,
         dry_run,
-        checksum_policy,
+        checksum_policy: checksum_policy_from_flags(always_verify, verify),
     };
 
     let result = ward_directory(&path, options)?;
@@ -148,14 +160,10 @@ fn handle_status(
     verify: bool,
     always_verify: bool,
     all: bool,
+    diff: bool,
 ) -> anyhow::Result<ExitCode> {
-    let policy = if always_verify {
-        ChecksumPolicy::Always
-    } else if verify {
-        ChecksumPolicy::WhenPossiblyModified
-    } else {
-        ChecksumPolicy::Never
-    };
+    // --diff implies --verify (checksum files to show old vs new sha256)
+    let policy = checksum_policy_from_flags(always_verify, verify || diff);
 
     let mode = if all {
         status::StatusMode::All
@@ -163,7 +171,19 @@ fn handle_status(
         status::StatusMode::Interesting
     };
 
-    let result = status::compute_status(&path, policy, mode, status::StatusPurpose::Display)?;
+    let diff_mode = if diff {
+        status::DiffMode::Capture
+    } else {
+        status::DiffMode::None
+    };
+
+    let result = status::compute_status(
+        &path,
+        policy,
+        mode,
+        status::StatusPurpose::Display,
+        diff_mode,
+    )?;
 
     let has_interesting_changes = result
         .statuses
@@ -174,27 +194,23 @@ fn handle_status(
         return Ok(ExitCode::SUCCESS);
     }
 
-    print_statuses(&result.statuses);
+    diffing::print_statuses(&result.statuses, diff);
 
-    if has_interesting_changes {
-        println!();
-        println!("Fingerprint: {}", result.fingerprint);
-        let verify_flag = if always_verify {
-            " --always-verify"
-        } else if verify {
-            " --verify"
-        } else {
-            ""
-        };
-        info!(
-            "Run 'treeward init|update{} --fingerprint {}' to accept these changes and update the ward.",
-            verify_flag, result.fingerprint
-        );
-
-        Ok(WardExitCode::status_unclean())
-    } else {
-        Ok(ExitCode::SUCCESS)
+    if !has_interesting_changes {
+        return Ok(ExitCode::SUCCESS);
     }
+
+    println!();
+    println!("Fingerprint: {}", result.fingerprint);
+
+    let verify_flag = follow_up_verify_flag(always_verify, verify, diff);
+
+    info!(
+        "Run 'treeward init|update{} --fingerprint {}' to accept these changes and update the ward.",
+        verify_flag, result.fingerprint
+    );
+
+    Ok(WardExitCode::status_unclean())
 }
 
 fn handle_verify(path: PathBuf) -> anyhow::Result<ExitCode> {
@@ -203,6 +219,7 @@ fn handle_verify(path: PathBuf) -> anyhow::Result<ExitCode> {
         ChecksumPolicy::Always,
         status::StatusMode::Interesting,
         status::StatusPurpose::Display,
+        status::DiffMode::None,
     )?;
 
     if result.statuses.is_empty() {
@@ -210,27 +227,13 @@ fn handle_verify(path: PathBuf) -> anyhow::Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    print_statuses(&result.statuses);
+    diffing::print_statuses(&result.statuses, false);
 
     error!(
         "Verification failed: {} change(s) detected",
         result.statuses.len()
     );
     Ok(WardExitCode::status_unclean())
-}
-
-fn print_statuses(statuses: &[status::StatusEntry]) {
-    for entry in statuses {
-        let status_code = match entry.status_type() {
-            status::StatusType::Added => "A",
-            status::StatusType::Removed => "R",
-            status::StatusType::PossiblyModified => "M?",
-            status::StatusType::Modified => "M",
-            status::StatusType::Unchanged => ".",
-        };
-
-        println!("{} {}", status_code, entry.path());
-    }
 }
 
 fn init_tracing(verbose: u8) {
@@ -258,6 +261,26 @@ fn init_tracing(verbose: u8) {
 
 struct EmojiFormatter {
     stderr_is_terminal: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::follow_up_verify_flag;
+
+    #[test]
+    fn follow_up_hint_uses_verify_when_diff_is_enabled() {
+        assert_eq!(follow_up_verify_flag(false, false, true), " --verify");
+    }
+
+    #[test]
+    fn follow_up_hint_uses_always_verify_when_requested() {
+        assert_eq!(follow_up_verify_flag(true, false, true), " --always-verify");
+    }
+
+    #[test]
+    fn follow_up_hint_has_no_verify_flag_by_default() {
+        assert_eq!(follow_up_verify_flag(false, false, false), "");
+    }
 }
 
 impl<S, N> FormatEvent<S, N> for EmojiFormatter

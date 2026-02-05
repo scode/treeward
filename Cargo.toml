@@ -13,6 +13,7 @@ description = "A command line tool for checksumming and verifying trees of files
 # tool Apple provides).
 anyhow = "1.0"
 base64 = "0.22"
+chrono = "0.4"
 clap = { version = "4.5.53", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 sha2 = { version = "0.10", features = ["asm"] }
