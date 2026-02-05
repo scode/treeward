@@ -131,7 +131,7 @@ treeward status --always-verify
 - `Added` - New files, directories, or symlinks not in the ward
 - `Removed` - Entries in the ward that no longer exist
 - `PossiblyModified` - Files whose metadata (mtime/size) differs from ward
-- `Modified` - Files whose checksums differ from ward (requires `--verify`)
+- `Modified` - Content differs (checksum mismatch when verified), symlink target changed, or entry type changed
 
 **Fingerprints:**
 
