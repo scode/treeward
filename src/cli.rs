@@ -98,8 +98,8 @@ COMMON USE CASES:
     $ treeward -C /data verify || alert_admin
 
   CI/CD artifact verification:
-    $ treeward -C ./dist init
     $ # ... build process ...
+    $ treeward -C ./dist update --allow-init
     $ treeward -C ./dist verify
 
   Idempotent scripting:
