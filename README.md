@@ -233,8 +233,8 @@ fi
 ```yaml
 - name: Verify build artifacts
   run: |
-    treeward -C ./dist init
     # ... build process ...
+    treeward -C ./dist update --allow-init
     treeward -C ./dist verify
 ```
 
