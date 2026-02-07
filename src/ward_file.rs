@@ -105,6 +105,18 @@ impl WardFile {
         Self::from_toml(&content)
     }
 
+    /// Load a WardFile from the filesystem if it exists.
+    ///
+    /// Missing files return `Ok(None)` so callers can treat the uninitialized
+    /// case separately from parse and permission failures.
+    pub(crate) fn load_if_exists(path: &Path) -> Result<Option<Self>, WardFileError> {
+        match Self::load(path) {
+            Ok(wf) => Ok(Some(wf)),
+            Err(WardFileError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Save a WardFile to the filesystem atomically.
     ///
     /// Writes to a temporary file, fsyncs it, then atomically renames it into place.
@@ -419,6 +431,35 @@ sha256 = "should_be_rejected"
 
         let loaded = WardFile::load(temp_file.path()).unwrap();
         assert_eq!(loaded, ward_file);
+    }
+
+    #[test]
+    fn test_load_if_exists_missing_returns_none() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let missing_path = temp_file.path().with_file_name("missing.treeward");
+
+        let loaded = WardFile::load_if_exists(&missing_path).unwrap();
+        assert_eq!(loaded, None);
+    }
+
+    #[test]
+    fn test_load_if_exists_existing_returns_some() {
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "test_file.txt".to_string(),
+            WardEntry::File {
+                sha256: "test_hash".to_string(),
+                mtime_nanos: 9876543210,
+                size: 100,
+            },
+        );
+
+        let ward_file = WardFile::new(entries);
+        let temp_file = NamedTempFile::new().unwrap();
+        ward_file.save(temp_file.path()).unwrap();
+
+        let loaded = WardFile::load_if_exists(temp_file.path()).unwrap();
+        assert_eq!(loaded, Some(ward_file));
     }
 
     #[test]
