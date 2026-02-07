@@ -11,3 +11,7 @@
 # OS files
 .DS_Store
 Thumbs.db
+
+# Nice helpers
+.claude
+.codex
