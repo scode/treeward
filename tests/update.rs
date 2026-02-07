@@ -1,4 +1,7 @@
+mod common;
+
 use assert_cmd::cargo::cargo_bin_cmd;
+use common::{status_fingerprint, status_output, treeward_cmd};
 use filetime::{FileTime, set_file_mtime};
 use predicates::prelude::*;
 use std::fs;
@@ -11,9 +14,7 @@ fn update_without_init_fails() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .assert()
         .failure()
@@ -28,33 +29,18 @@ fn update_respects_fingerprint() {
     let file_path = temp.path().join("file.txt");
     fs::write(&file_path, "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     fs::write(&file_path, "updated").unwrap();
 
-    let status_output = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("status")
-        .arg("--verify")
-        .output()
-        .unwrap();
+    let (status_output, fingerprint) = status_fingerprint(temp.path(), &["--verify"]);
     assert!(
         !status_output.status.success(),
         "status should fail so we can capture the fingerprint for pending changes"
     );
-    let output_str = String::from_utf8(status_output.stdout).unwrap();
-    let fingerprint = extract_fingerprint(&output_str);
 
     // Must use same --verify flag as status to get matching fingerprint
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .arg("--verify")
         .arg("--fingerprint")
@@ -70,21 +56,14 @@ fn update_dry_run_skips_writes() {
     let file_path = temp.path().join("file.txt");
     fs::write(&file_path, "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     let ward_path = temp.path().join(".treeward");
     let before = fs::metadata(&ward_path).unwrap().modified().unwrap();
 
     fs::write(&file_path, "changed").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .arg("--dry-run")
         .assert()
@@ -100,9 +79,7 @@ fn update_allow_init_initializes_when_missing() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .arg("--allow-init")
         .assert()
@@ -119,12 +96,7 @@ fn update_with_c_flag_changes_directory() {
     fs::create_dir(&subdir).unwrap();
     fs::write(subdir.join("file.txt"), "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(&subdir)
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(&subdir).arg("init").assert().success();
 
     fs::write(subdir.join("file.txt"), "updated").unwrap();
 
@@ -139,44 +111,21 @@ fn update_with_c_flag_changes_directory() {
     assert!(subdir.join(".treeward").exists());
 }
 
-fn extract_fingerprint(output: &str) -> String {
-    output
-        .lines()
-        .find_map(|line| line.strip_prefix("Fingerprint: "))
-        .expect("fingerprint not found in output")
-        .to_string()
-}
-
 #[test]
 fn update_verify_matches_status_verify_fingerprint() {
     let temp = TempDir::new().unwrap();
     let file_path = temp.path().join("file.txt");
     fs::write(&file_path, "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     fs::write(&file_path, "modified").unwrap();
 
     // Get fingerprint with --verify
-    let status_output = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("status")
-        .arg("--verify")
-        .output()
-        .unwrap();
-    let output_str = String::from_utf8(status_output.stdout).unwrap();
-    let fingerprint = extract_fingerprint(&output_str);
+    let (_, fingerprint) = status_fingerprint(temp.path(), &["--verify"]);
 
     // Update with --verify and matching fingerprint should succeed
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .arg("--verify")
         .arg("--fingerprint")
@@ -191,30 +140,15 @@ fn update_always_verify_matches_status_always_verify_fingerprint() {
     let file_path = temp.path().join("file.txt");
     fs::write(&file_path, "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     fs::write(&file_path, "modified").unwrap();
 
     // Get fingerprint with --always-verify
-    let status_output = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("status")
-        .arg("--always-verify")
-        .output()
-        .unwrap();
-    let output_str = String::from_utf8(status_output.stdout).unwrap();
-    let fingerprint = extract_fingerprint(&output_str);
+    let (_, fingerprint) = status_fingerprint(temp.path(), &["--always-verify"]);
 
     // Update with --always-verify and matching fingerprint should succeed
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .arg("--always-verify")
         .arg("--fingerprint")
@@ -231,34 +165,21 @@ fn update_default_matches_status_default_fingerprint_metadata_only() {
     let file_path = temp.path().join("file.txt");
     fs::write(&file_path, "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     // Touch file to change mtime without changing content
     set_file_mtime(&file_path, FileTime::from_unix_time(1000000000, 0)).unwrap();
 
     // Get fingerprint with default (no --verify) - shows M?
-    let status_output = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("status")
-        .output()
-        .unwrap();
+    let (status_output, fingerprint) = status_fingerprint(temp.path(), &[]);
     let output_str = String::from_utf8(status_output.stdout).unwrap();
     assert!(
         output_str.contains("M?"),
         "default status should show M? for metadata-only change"
     );
-    let fingerprint = extract_fingerprint(&output_str);
 
     // Update with default (no --verify) and matching fingerprint should succeed
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .arg("--fingerprint")
         .arg(&fingerprint)
@@ -277,31 +198,18 @@ fn update_default_succeeds_when_fingerprints_match() {
     let file_path = temp.path().join("file.txt");
     fs::write(&file_path, "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     // Actually change the content
     fs::write(&file_path, "modified").unwrap();
 
     // Get fingerprint with default (no --verify) - shows M?
-    let status_output = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("status")
-        .output()
-        .unwrap();
+    let (status_output, fingerprint) = status_fingerprint(temp.path(), &[]);
     let output_str = String::from_utf8(status_output.stdout).unwrap();
     assert!(output_str.contains("M?"));
-    let fingerprint = extract_fingerprint(&output_str);
 
     // Update with default (no --verify) also reports M?, fingerprints match
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .arg("--fingerprint")
         .arg(&fingerprint)
@@ -315,23 +223,13 @@ fn update_fingerprint_rejects_second_edit_of_already_modified_file() {
     let file_path = temp.path().join("file.txt");
     fs::write(&file_path, "aaaaa").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     // First edit: status should report M? and produce fingerprint.
     fs::write(&file_path, "bbbbb").unwrap();
     set_file_mtime(&file_path, FileTime::from_unix_time(1_000_000_000, 0)).unwrap();
 
-    let status_output = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("status")
-        .output()
-        .unwrap();
+    let (status_output, fingerprint) = status_fingerprint(temp.path(), &[]);
     assert!(
         !status_output.status.success(),
         "status should report pending changes after first edit"
@@ -343,15 +241,11 @@ fn update_fingerprint_rejects_second_edit_of_already_modified_file() {
         "expected metadata-only modified status, got: {}",
         output_str
     );
-    let fingerprint = extract_fingerprint(&output_str);
-
     // Second edit before update: same path/status class but different file state.
     fs::write(&file_path, "ccccc").unwrap();
     set_file_mtime(&file_path, FileTime::from_unix_time(1_000_000_001, 0)).unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .arg("--fingerprint")
         .arg(&fingerprint)
@@ -368,46 +262,27 @@ fn update_fingerprint_mismatch_shows_hint() {
     let file_path = temp.path().join("file.txt");
     fs::write(&file_path, "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     // Touch file to change mtime without changing content
     set_file_mtime(&file_path, FileTime::from_unix_time(1000000000, 0)).unwrap();
 
     // Get fingerprint with --verify (finds file unchanged, no M entry)
-    let status_output = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("status")
-        .arg("--verify")
-        .output()
-        .unwrap();
+    let verify_output = status_output(temp.path(), &["--verify"]);
 
     // With --verify and unchanged content, status should show clean (no changes)
     assert!(
-        status_output.status.success(),
+        verify_output.status.success(),
         "status --verify should succeed when only metadata changed"
     );
 
     // Now get fingerprint with default (no --verify) - shows M?
-    let status_default = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("status")
-        .output()
-        .unwrap();
+    let (status_default, fingerprint) = status_fingerprint(temp.path(), &[]);
     let output_str = String::from_utf8(status_default.stdout).unwrap();
     assert!(output_str.contains("M?"));
-    let fingerprint = extract_fingerprint(&output_str);
 
     // Update WITH --verify but using fingerprint from non-verify status should fail
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .arg("--verify")
         .arg("--fingerprint")
@@ -429,9 +304,7 @@ fn update_allow_init_is_idempotent() {
     fs::write(temp.path().join("subdir/nested.txt"), "world").unwrap();
 
     // First run: initializes ward files
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .arg("--allow-init")
         .assert()
@@ -441,9 +314,7 @@ fn update_allow_init_is_idempotent() {
     let subdir_ward_content_1 = fs::read_to_string(temp.path().join("subdir/.treeward")).unwrap();
 
     // Second run: should succeed and produce identical ward files
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .arg("--allow-init")
         .assert()
@@ -462,9 +333,7 @@ fn update_allow_init_is_idempotent() {
     );
 
     // Third run: still idempotent
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("update")
         .arg("--allow-init")
         .assert()
@@ -477,12 +346,7 @@ fn update_allow_init_is_idempotent() {
     );
 
     // Verify status shows no changes
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("verify")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("verify").assert().success();
 }
 
 /// Verifies that `update` exits with code 255 on errors (e.g., permission denied).
@@ -492,12 +356,7 @@ fn update_exits_code_255_on_permission_error() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     fs::write(temp.path().join("file.txt"), "modified").unwrap();
 
@@ -506,12 +365,7 @@ fn update_exits_code_255_on_permission_error() {
     perms.set_mode(0o555);
     fs::set_permissions(temp.path(), perms.clone()).unwrap();
 
-    let output = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("update")
-        .output()
-        .unwrap();
+    let output = treeward_cmd(temp.path()).arg("update").output().unwrap();
 
     // Restore permissions for cleanup
     perms.set_mode(0o755);
