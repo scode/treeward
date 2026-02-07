@@ -361,7 +361,7 @@ fn walk_directory(
     info!("Entering directory {}", current_dir.display());
 
     let ward_path = current_dir.join(".treeward");
-    let ward_file = try_load_ward_file(&ward_path)?;
+    let ward_file = WardFile::load_if_exists(&ward_path)?;
     let ward_entries = ward_file.map(|wf| wf.entries).unwrap_or_else(BTreeMap::new);
 
     let fs_entries = match list_directory(current_dir) {
@@ -956,14 +956,6 @@ pub fn build_ward_files(
         .into_iter()
         .map(|(path, entries)| (path, WardFile::new(entries)))
         .collect())
-}
-
-fn try_load_ward_file(path: &Path) -> Result<Option<WardFile>, WardFileError> {
-    match WardFile::load(path) {
-        Ok(wf) => Ok(Some(wf)),
-        Err(WardFileError::Io(e)) if e.kind() == ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
-    }
 }
 
 #[cfg(test)]

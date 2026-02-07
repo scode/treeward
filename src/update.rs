@@ -7,7 +7,6 @@ use crate::status::{
 #[cfg(test)]
 use crate::ward_file::WardEntry;
 use crate::ward_file::{WardFile, WardFileError};
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf, StripPrefixError};
 
 #[derive(Debug, thiserror::Error)]
@@ -140,7 +139,7 @@ pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, W
     let mut ward_files_updated = Vec::new();
     for (dir_path, ward_file) in &ward_files {
         let ward_path = dir_path.join(".treeward");
-        let existing = try_load_ward_file(&ward_path)?;
+        let existing = WardFile::load_if_exists(&ward_path)?;
 
         if existing.as_ref() != Some(ward_file) {
             if !options.dry_run {
@@ -170,14 +169,6 @@ pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, W
         files_warded,
         ward_files_updated,
     })
-}
-
-fn try_load_ward_file(path: &Path) -> Result<Option<WardFile>, WardFileError> {
-    match WardFile::load(path) {
-        Ok(wf) => Ok(Some(wf)),
-        Err(WardFileError::Io(e)) if e.kind() == ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
-    }
 }
 
 #[cfg(test)]
