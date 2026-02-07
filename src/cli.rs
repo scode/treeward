@@ -432,6 +432,7 @@ USAGE:
   treeward status                         # Fast metadata-only check (default)
   treeward status --verify                # Checksum files with changed metadata
   treeward status --always-verify         # Checksum all files (detect silent corruption)
+  treeward status --diff                  # Show detailed diff of changes (implies --verify)
   treeward -C /path/to/project status     # Check specific directory
 
 CHANGE TYPES:
@@ -479,6 +480,28 @@ To verify file contents, use one of the verification flags:
       - High-value data verification
       - Detecting hardware-level corruption
 
+DIFF MODE:
+
+The --diff flag shows detailed information about what changed for each entry:
+
+  $ treeward status --diff
+
+For modified files, this shows old and new values for any changed fields (size, mtime, sha256):
+
+  M  data.json
+     size: 1.2 KB -> 1.5 KB
+     mtime: 2024-01-15 10:30:45.123 -> 2024-01-16 14:22:10.456
+     sha256: abc123def456... -> 789xyz012345...
+
+For removed entries, it shows what was recorded in the ward:
+
+  R  oldfile.txt
+     was: file (256 bytes, sha256: abc123def456...)
+
+For type changes (e.g., file replaced with directory), both old and new types are shown.
+
+The --diff flag implies --verify, since showing sha256 differences requires checksumming.
+
 FINGERPRINTS:
 
 Every status check produces a unique fingerprint representing the exact changeset:
@@ -508,17 +531,25 @@ This is useful for previewing what would be recorded during initialization.
 
 UNDERSTANDING OUTPUT:
 
-The output shows the path and change type for each modified entry:
+The output shows a status code and path for each changed entry:
 
-  Added: newfile.txt
-  Removed: oldfile.txt
-  PossiblyModified: data.json
-  Modified: config.yaml
+  A  newfile.txt
+  R  oldfile.txt
+  M? data.json
+  M  config.yaml
 
   Fingerprint: abc123...
 
+Status codes:
+  A   Added - new entry not in ward
+  R   Removed - entry in ward no longer exists
+  M?  PossiblyModified - metadata differs, content not verified
+  M   Modified - content verified as changed
+
 Paths are relative to the root directory being checked. For recursive checks, subdirectory
 paths are shown with their full relative path.
+
+With --diff, each entry also shows what changed (see DIFF MODE above).
 
 PERFORMANCE:
 
@@ -557,6 +588,9 @@ EXAMPLES:
   # Full integrity audit (check all checksums)
   $ treeward status --always-verify
 
+  # Show detailed diff of what changed
+  $ treeward status --diff
+
   # Preview what would be initialized
   $ treeward -C /path/to/uninitialized/dir status
 
@@ -575,6 +609,10 @@ EXAMPLES:
         /// Show all files, including unchanged ones
         #[arg(long)]
         all: bool,
+
+        /// Show detailed diff of what changed for each entry (implies --verify)
+        #[arg(long)]
+        diff: bool,
     },
 
     /// Verify consistency of the ward, exit with success if no inconsistency.

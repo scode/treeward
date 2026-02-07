@@ -42,40 +42,41 @@ pub enum StatusType {
 ///
 /// # Relationship to `WardEntry`
 ///
-/// Some variants carry an `Option<WardEntry>` field. This represents the complete ward
-/// data (checksum, metadata) for the entry, but it is only populated when the caller
-/// needs it - specifically when `StatusPurpose::WardUpdate` is used. When
-/// `DiffMode::Capture` is enabled, modified entries may also include `ward_entry`
-/// to show new values in diffs.
+/// Some variants carry `ward_entry` and/or `old_ward_entry` fields:
 ///
-/// The `Option` exists because computing a `WardEntry` for files requires checksumming,
-/// which is expensive. When status is computed for display purposes only
-/// (`StatusPurpose::Display`), we skip checksumming and set `ward_entry: None`,
-/// except in diff mode where modified entries include new values for display.
-/// When status is computed to update ward files (`StatusPurpose::WardUpdate`), we
-/// compute the full checksum and populate `ward_entry: Some(...)`.
+/// - `ward_entry: Option<WardEntry>` - The current/new ward data for this entry.
+///   Populated when `StatusPurpose::WardUpdate` is used and, for differing entries,
+///   when `DiffMode::Capture` is enabled to show new values in diffs. When present,
+///   it is always complete (never contains placeholder data).
 ///
-/// This ensures that `WardEntry` is always complete when present - it never
-/// contains placeholder data like empty checksums.
+/// - `old_ward_entry: Option<WardEntry>` - The original ward data before the change.
+///   Only populated when `DiffMode::Capture` is used, to enable displaying what
+///   changed (e.g., old size vs new size, old checksum vs new checksum).
 ///
 /// # Variants
 ///
 /// - `Added`: Entry exists in filesystem but not in ward. The `ward_entry` contains
-///   the new entry data to be written (if `WardUpdate` purpose).
+///   the new entry data to be written (if `WardUpdate` purpose). No `old_ward_entry`
+///   since there was no previous ward data.
 ///
-/// - `Removed`: Entry exists in ward but not in filesystem. No `ward_entry` is needed
-///   since the entry should be removed from the ward file.
+/// - `Removed`: Entry exists in ward but not in filesystem. The `old_ward_entry`
+///   contains the original ward data (if `DiffMode::Capture`). No `ward_entry`
+///   since the entry should be removed.
 ///
-/// - `Modified`: Entry exists in both but differs. The `ward_entry` contains the
-///   updated entry data reflecting the current filesystem state (if `WardUpdate` purpose).
+/// - `Modified`: Entry exists in both but content differs. The `ward_entry` contains
+///   the updated entry data when either `WardUpdate` purpose or `DiffMode::Capture`
+///   is used. The `old_ward_entry` contains the original ward data
+///   (if `DiffMode::Capture`).
 ///
 /// - `PossiblyModified`: Metadata differs but content was not checksummed for status
 ///   reporting purposes (only occurs with `ChecksumPolicy::Never`). When building
-///   ward updates, content may still be checksummed to populate `ward_entry`.
+///   ward updates or capturing diffs, content may still be checksummed to populate
+///   `ward_entry`; with `DiffMode::Capture`, `old_ward_entry` contains the original
+///   ward data.
 ///
 /// - `Unchanged`: Entry exists in both and matches. The `ward_entry` contains the
 ///   current entry data (if `WardUpdate` purpose), which may have updated metadata
-///   even if content is unchanged.
+///   even if content is unchanged. No `old_ward_entry` since nothing changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatusEntry {
     Added {
@@ -84,14 +85,20 @@ pub enum StatusEntry {
     },
     Removed {
         path: String,
+        /// The original ward entry (for diff display)
+        old_ward_entry: Option<WardEntry>,
     },
     Modified {
         path: String,
         ward_entry: Option<WardEntry>,
+        /// The original ward entry (for diff display)
+        old_ward_entry: Option<WardEntry>,
     },
     PossiblyModified {
         path: String,
         ward_entry: Option<WardEntry>,
+        /// The original ward entry (for diff display)
+        old_ward_entry: Option<WardEntry>,
     },
     Unchanged {
         path: String,
@@ -103,7 +110,7 @@ impl StatusEntry {
     pub fn path(&self) -> &str {
         match self {
             StatusEntry::Added { path, .. } => path,
-            StatusEntry::Removed { path } => path,
+            StatusEntry::Removed { path, .. } => path,
             StatusEntry::Modified { path, .. } => path,
             StatusEntry::PossiblyModified { path, .. } => path,
             StatusEntry::Unchanged { path, .. } => path,
@@ -188,12 +195,25 @@ pub enum StatusMode {
     All,
 }
 
+/// Controls whether `StatusEntry` variants include diff data (old ward entry values).
+///
+/// When diff mode is enabled, Modified, PossiblyModified, and Removed variants
+/// will include the original ward entry data for comparison with current filesystem state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DiffMode {
+    /// Don't capture diff data (current default)
+    #[default]
+    None,
+    /// Capture old ward entry for diff display
+    Capture,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusResult {
     pub statuses: Vec<StatusEntry>,
     /// A unique fingerprint representing the entire changeset.
     ///
-    /// This is currentlyly a Base64-encoded SHA-256 but it could change
+    /// This is currently a Base64-encoded SHA-256 but it could change
     /// in the future.
     ///
     /// See --fingerprint flag for more information.
@@ -219,6 +239,9 @@ pub struct StatusResult {
 /// * `purpose` - Controls whether to generate complete ward entries:
 ///   - `Display`: Only checksum based on policy (for user display)
 ///   - `WardUpdate`: Always provide complete ward entries, reusing checksums when possible
+/// * `diff_mode` - Controls whether to capture old ward entry data for diff display:
+///   - `None`: Don't capture diff data (default)
+///   - `Capture`: Include old ward entry in Modified, PossiblyModified, and Removed variants
 ///
 /// # Returns
 ///
@@ -246,12 +269,21 @@ pub fn compute_status(
     policy: ChecksumPolicy,
     mode: StatusMode,
     purpose: StatusPurpose,
+    diff_mode: DiffMode,
 ) -> Result<StatusResult, StatusError> {
     let root = root.to_path_buf();
 
     let mut statuses = Vec::new();
 
-    walk_directory(&root, &root, &mut statuses, policy, mode, purpose)?;
+    walk_directory(
+        &root,
+        &root,
+        &mut statuses,
+        policy,
+        mode,
+        purpose,
+        diff_mode,
+    )?;
 
     statuses.sort_by(|a, b| a.path().cmp(b.path()));
 
@@ -270,6 +302,7 @@ fn walk_directory(
     policy: ChecksumPolicy,
     mode: StatusMode,
     purpose: StatusPurpose,
+    diff_mode: DiffMode,
 ) -> Result<(), StatusError> {
     info!("Entering directory {}", current_dir.display());
 
@@ -292,19 +325,36 @@ fn walk_directory(
         policy,
         mode,
         purpose,
+        diff_mode,
     )?;
 
     for (name, entry) in &fs_entries {
         if matches!(entry, FsEntry::Dir { .. }) {
             let child_path = current_dir.join(name);
-            walk_directory(tree_root, &child_path, statuses, policy, mode, purpose)?;
+            walk_directory(
+                tree_root,
+                &child_path,
+                statuses,
+                policy,
+                mode,
+                purpose,
+                diff_mode,
+            )?;
         }
     }
 
     for (name, entry) in &ward_entries {
         if matches!(entry, WardEntry::Dir {}) && !fs_entries.contains_key(name) {
             let child_path = current_dir.join(name);
-            walk_directory(tree_root, &child_path, statuses, policy, mode, purpose)?;
+            walk_directory(
+                tree_root,
+                &child_path,
+                statuses,
+                policy,
+                mode,
+                purpose,
+                diff_mode,
+            )?;
         }
     }
 
@@ -354,6 +404,7 @@ fn compare_entries(
     policy: ChecksumPolicy,
     mode: StatusMode,
     purpose: StatusPurpose,
+    diff_mode: DiffMode,
 ) -> Result<(), StatusError> {
     for name in fs_entries.keys() {
         if !ward_entries.contains_key(name) {
@@ -376,8 +427,14 @@ fn compare_entries(
     for name in ward_entries.keys() {
         if !fs_entries.contains_key(name) {
             let relative_path = make_relative_path(tree_root, current_dir, name)?;
+            let old_ward_entry = if diff_mode == DiffMode::Capture {
+                Some(ward_entries[name].clone())
+            } else {
+                None
+            };
             statuses.push(StatusEntry::Removed {
                 path: relative_path,
+                old_ward_entry,
             });
         }
     }
@@ -394,6 +451,7 @@ fn compare_entries(
                 policy,
                 mode,
                 purpose,
+                diff_mode,
             )?;
         }
     }
@@ -423,6 +481,7 @@ fn check_modification(
     policy: ChecksumPolicy,
     mode: StatusMode,
     purpose: StatusPurpose,
+    diff_mode: DiffMode,
 ) -> Result<(), StatusError> {
     let relative_path = make_relative_path(tree_root, current_dir, name)?;
     let absolute_path = current_dir.join(name);
@@ -448,7 +507,9 @@ fn check_modification(
                 ChecksumPolicy::Always => true,
             };
             let need_checksum_for_ward = purpose == StatusPurpose::WardUpdate && metadata_differs;
-            let need_checksum = need_checksum_for_status || need_checksum_for_ward;
+            let need_checksum_for_diff = diff_mode == DiffMode::Capture && metadata_differs;
+            let need_checksum =
+                need_checksum_for_status || need_checksum_for_ward || need_checksum_for_diff;
 
             let (sha256_differs, new_checksum) = if need_checksum {
                 let checksum = checksum_file(&absolute_path)?;
@@ -457,22 +518,32 @@ fn check_modification(
                 (false, None)
             };
 
-            let ward_entry = if purpose == StatusPurpose::WardUpdate {
-                Some(match new_checksum {
-                    Some(c) => WardEntry::File {
-                        sha256: c.sha256,
-                        mtime_nanos: mtime_to_nanos(&c.mtime)?,
-                        size: c.size,
-                    },
-                    None => WardEntry::File {
-                        sha256: ward_sha.clone(),
-                        mtime_nanos: fs_mtime_nanos,
-                        size: *fs_size,
-                    },
-                })
-            } else {
-                None
-            };
+            let new_ward_entry =
+                if purpose == StatusPurpose::WardUpdate || diff_mode == DiffMode::Capture {
+                    Some(match &new_checksum {
+                        Some(c) => WardEntry::File {
+                            sha256: c.sha256.clone(),
+                            mtime_nanos: mtime_to_nanos(&c.mtime)?,
+                            size: c.size,
+                        },
+                        None => WardEntry::File {
+                            sha256: ward_sha.clone(),
+                            mtime_nanos: fs_mtime_nanos,
+                            size: *fs_size,
+                        },
+                    })
+                } else {
+                    None
+                };
+
+            // Capture old_ward_entry when diff mode is enabled and the entry differs
+            // (either metadata or checksum - for --always-verify detecting silent corruption)
+            let old_ward_entry =
+                if diff_mode == DiffMode::Capture && (metadata_differs || sha256_differs) {
+                    Some(ward_entry.clone())
+                } else {
+                    None
+                };
 
             if metadata_differs && !need_checksum_for_status {
                 // Policy says don't checksum for status reporting, so report
@@ -481,30 +552,32 @@ fn check_modification(
                 // and ward commands when using the same --verify/--always-verify flags.
                 statuses.push(StatusEntry::PossiblyModified {
                     path: relative_path,
-                    ward_entry,
+                    ward_entry: new_ward_entry,
+                    old_ward_entry,
                 });
             } else if sha256_differs {
                 statuses.push(StatusEntry::Modified {
                     path: relative_path,
-                    ward_entry,
+                    ward_entry: new_ward_entry,
+                    old_ward_entry,
                 });
             } else if mode == StatusMode::All || purpose == StatusPurpose::WardUpdate {
                 statuses.push(StatusEntry::Unchanged {
                     path: relative_path,
-                    ward_entry,
+                    ward_entry: new_ward_entry,
                 });
             }
         }
         (WardEntry::Dir {}, FsEntry::Dir { .. }) => {
             if mode == StatusMode::All || purpose == StatusPurpose::WardUpdate {
-                let ward_entry = if purpose == StatusPurpose::WardUpdate {
+                let new_ward_entry = if purpose == StatusPurpose::WardUpdate {
                     Some(WardEntry::Dir {})
                 } else {
                     None
                 };
                 statuses.push(StatusEntry::Unchanged {
                     path: relative_path,
-                    ward_entry,
+                    ward_entry: new_ward_entry,
                 });
             }
         }
@@ -516,35 +589,50 @@ fn check_modification(
                 symlink_target: fs_target,
             },
         ) => {
-            let ward_entry = if purpose == StatusPurpose::WardUpdate {
-                Some(WardEntry::Symlink {
-                    symlink_target: fs_target.clone(),
-                })
-            } else {
-                None
-            };
+            let new_ward_entry =
+                if purpose == StatusPurpose::WardUpdate || diff_mode == DiffMode::Capture {
+                    Some(WardEntry::Symlink {
+                        symlink_target: fs_target.clone(),
+                    })
+                } else {
+                    None
+                };
 
             if ward_target != fs_target {
+                let old_ward_entry = if diff_mode == DiffMode::Capture {
+                    Some(ward_entry.clone())
+                } else {
+                    None
+                };
                 statuses.push(StatusEntry::Modified {
                     path: relative_path,
-                    ward_entry,
+                    ward_entry: new_ward_entry,
+                    old_ward_entry,
                 });
             } else if mode == StatusMode::All || purpose == StatusPurpose::WardUpdate {
                 statuses.push(StatusEntry::Unchanged {
                     path: relative_path,
-                    ward_entry,
+                    ward_entry: new_ward_entry,
                 });
             }
         }
         _ => {
-            let ward_entry = if purpose == StatusPurpose::WardUpdate {
-                Some(build_ward_entry_from_fs(current_dir, name, fs_entry)?)
+            // Type change (e.g., file -> symlink)
+            let new_ward_entry =
+                if purpose == StatusPurpose::WardUpdate || diff_mode == DiffMode::Capture {
+                    Some(build_ward_entry_from_fs(current_dir, name, fs_entry)?)
+                } else {
+                    None
+                };
+            let old_ward_entry = if diff_mode == DiffMode::Capture {
+                Some(ward_entry.clone())
             } else {
                 None
             };
             statuses.push(StatusEntry::Modified {
                 path: relative_path,
-                ward_entry,
+                ward_entry: new_ward_entry,
+                old_ward_entry,
             });
         }
     }
@@ -758,6 +846,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 0);
@@ -767,6 +856,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.fingerprint, result2.fingerprint);
@@ -786,6 +876,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
@@ -808,6 +899,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 2);
@@ -842,6 +934,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
@@ -878,6 +971,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
@@ -911,6 +1005,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
@@ -944,6 +1039,7 @@ mod tests {
             ChecksumPolicy::WhenPossiblyModified,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
@@ -976,6 +1072,7 @@ mod tests {
             ChecksumPolicy::WhenPossiblyModified,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 0);
@@ -995,6 +1092,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         let result2 = compute_status(
@@ -1002,6 +1100,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
 
@@ -1025,6 +1124,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         let result2 = compute_status(
@@ -1032,6 +1132,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
 
@@ -1073,6 +1174,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 3);
@@ -1134,6 +1236,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
 
@@ -1184,6 +1287,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
 
@@ -1212,6 +1316,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 3);
@@ -1254,6 +1359,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
 
@@ -1289,6 +1395,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
@@ -1322,6 +1429,7 @@ mod tests {
             ChecksumPolicy::WhenPossiblyModified,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
@@ -1360,6 +1468,7 @@ mod tests {
             ChecksumPolicy::WhenPossiblyModified,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 0);
@@ -1395,6 +1504,7 @@ mod tests {
             ChecksumPolicy::Always,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 1);
@@ -1433,6 +1543,7 @@ mod tests {
             ChecksumPolicy::Always,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 0);
@@ -1463,6 +1574,7 @@ mod tests {
             ChecksumPolicy::WhenPossiblyModified,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 0);
@@ -1515,6 +1627,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::All,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 2);
@@ -1578,6 +1691,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::All,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(result.statuses.len(), 4);
@@ -1631,6 +1745,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         let result_all = compute_status(
@@ -1638,6 +1753,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::All,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
 
@@ -1705,6 +1821,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         );
 
         assert!(result.is_err());
@@ -1730,6 +1847,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         );
 
         assert!(result.is_err());
@@ -1741,16 +1859,18 @@ mod tests {
         );
     }
 
-    /// Verifies that `StatusPurpose::Display` never populates `ward_entry`.
+    /// Verifies that `StatusPurpose::Display` with `DiffMode::None` does not
+    /// populate `ward_entry`.
     ///
     /// When computing status for display (e.g., `treeward status`), we don't need
     /// the full ward entry data - we only care about whether files changed. Populating
     /// `ward_entry` would require checksumming files that don't need it, wasting CPU.
     ///
     /// This test creates files in all status states (added, unchanged, modified, removed)
-    /// and verifies that every `StatusEntry` has `ward_entry=None` when using Display purpose.
+    /// and verifies that every `StatusEntry` has `ward_entry=None` when using
+    /// Display purpose without diff capture.
     #[test]
-    fn test_display_purpose_ward_entry_is_none() {
+    fn test_display_purpose_without_diff_ward_entry_is_none() {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
 
@@ -1798,13 +1918,14 @@ mod tests {
             ChecksumPolicy::WhenPossiblyModified,
             StatusMode::All,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
 
         for status in &result.statuses {
             assert!(
                 status.ward_entry().is_none(),
-                "Display purpose should have ward_entry=None for {}, got {:?}",
+                "Display + DiffMode::None should have ward_entry=None for {}, got {:?}",
                 status.path(),
                 status.ward_entry()
             );
@@ -1873,6 +1994,7 @@ mod tests {
             ChecksumPolicy::WhenPossiblyModified,
             StatusMode::All,
             StatusPurpose::WardUpdate,
+            DiffMode::None,
         )
         .unwrap();
 
@@ -1968,6 +2090,7 @@ mod tests {
             ChecksumPolicy::WhenPossiblyModified,
             StatusMode::All,
             StatusPurpose::WardUpdate,
+            DiffMode::None,
         )
         .unwrap();
 
@@ -2030,6 +2153,7 @@ mod tests {
             ChecksumPolicy::Always,
             StatusMode::Interesting,
             StatusPurpose::WardUpdate,
+            DiffMode::None,
         )
         .unwrap();
 
@@ -2085,6 +2209,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::WardUpdate,
+            DiffMode::None,
         )
         .unwrap();
 
@@ -2154,6 +2279,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(display_result.statuses.len(), 1);
@@ -2168,6 +2294,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::WardUpdate,
+            DiffMode::None,
         )
         .unwrap();
         assert_eq!(ward_result.statuses.len(), 1);
@@ -2220,6 +2347,7 @@ mod tests {
             ChecksumPolicy::Never,
             StatusMode::Interesting,
             StatusPurpose::Display,
+            DiffMode::None,
         );
 
         assert!(result.is_ok());

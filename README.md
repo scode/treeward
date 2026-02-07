@@ -125,6 +125,21 @@ treeward status --verify
 
 # Always verify checksums for all files (detect silent corruption)
 treeward status --always-verify
+
+# Show detailed per-entry diff (implies --verify)
+treeward status --diff
+```
+
+`--diff` shows field-level changes for modified and removed entries. It implies `--verify` (files with changed metadata
+are checksummed). If used with `--always-verify`, all files are checksummed and diff output includes any detected
+checksum changes.
+
+```text
+M  data.json
+   size: 1.2 KB -> 1.5 KB
+   sha256: abc123def456... -> 789xyz012345...
+R  oldfile.txt
+   was: file (256 bytes, sha256: abc123def456...)
 ```
 
 **Change types:**

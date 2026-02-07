@@ -44,7 +44,7 @@ fn verify_fails_on_added_file() {
         .arg("verify")
         .assert()
         .failure()
-        .stdout(predicate::str::contains("A new.txt"))
+        .stdout(predicate::str::contains("A  new.txt"))
         .stderr(predicate::str::contains("Verification failed"));
 }
 
@@ -69,7 +69,7 @@ fn verify_fails_on_modified_file() {
         .arg("verify")
         .assert()
         .failure()
-        .stdout(predicate::str::contains("M file.txt"))
+        .stdout(predicate::str::contains("M  file.txt"))
         .stderr(predicate::str::contains("Verification failed"));
 }
 
