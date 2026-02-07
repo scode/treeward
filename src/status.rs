@@ -1,5 +1,6 @@
 use crate::checksum::{ChecksumError, checksum_file};
 use crate::dir_list::{DirListError, FsEntry, list_directory};
+use crate::util::hashing;
 use crate::ward_file::{WardEntry, WardFile, WardFileError};
 use base64::Engine;
 use sha2::{Digest, Sha256};
@@ -220,6 +221,49 @@ pub struct StatusResult {
     pub fingerprint: String,
 }
 
+/// Canonicalized fingerprint input for one status entry.
+///
+/// We decouple fingerprint construction from `StatusEntry` so hashing can use
+/// normalized, policy-aware payloads without affecting user-facing status output.
+///
+/// Example: if `status` reports `M? notes.txt`, then `notes.txt` is edited again
+/// before `update --fingerprint`, path and status class may still be `notes.txt + M?`.
+/// By carrying per-entry payload in this record, the second edit changes fingerprint input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FingerprintRecord {
+    path: String,
+    status_type: StatusType,
+    payload: FingerprintPayload,
+}
+
+/// Additional state material hashed into the fingerprint.
+///
+/// `path + status` alone is insufficient for TOCTOU detection: a file can be edited
+/// repeatedly while still remaining in the same status class. This payload captures
+/// enough state to bind a fingerprint to the exact reviewed snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FingerprintPayload {
+    /// Present for Added/Modified/PossiblyModified files.
+    File {
+        /// Current filesystem mtime at status computation time.
+        mtime_nanos: u64,
+        /// Current filesystem size at status computation time.
+        size: u64,
+        // Present only when status determination was checksum-based.
+        sha256: Option<String>,
+    },
+    /// Present for Added directories and type changes to directories.
+    Dir { mtime_nanos: u64 },
+    /// Present for Added/Modified symlinks and type changes to symlinks.
+    Symlink { symlink_target: PathBuf },
+    /// Present for Removed entries (captures prior ward state).
+    ///
+    /// Removed entries have no filesystem-side object to hash, so the previous ward
+    /// data is the only stable identity for what was reviewed. Capturing it prevents
+    /// path-only `R` entries from masking ward-state drift between status and update.
+    Removed { ward_entry: WardEntry },
+}
+
 /// Compare filesystem state against ward files to detect changes.
 ///
 /// Recursively walks the directory tree starting from `root`, comparing the
@@ -274,11 +318,13 @@ pub fn compute_status(
     let root = root.to_path_buf();
 
     let mut statuses = Vec::new();
+    let mut fingerprint_records = Vec::new();
 
     walk_directory(
         &root,
         &root,
         &mut statuses,
+        &mut fingerprint_records,
         policy,
         mode,
         purpose,
@@ -286,8 +332,14 @@ pub fn compute_status(
     )?;
 
     statuses.sort_by(|a, b| a.path().cmp(b.path()));
+    // Keep fingerprint deterministic even if traversal order changes in the future.
+    fingerprint_records.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then_with(|| status_type_code(a.status_type).cmp(status_type_code(b.status_type)))
+    });
 
-    let fingerprint = compute_fingerprint(&statuses);
+    let fingerprint = compute_fingerprint(&fingerprint_records);
 
     Ok(StatusResult {
         statuses,
@@ -295,10 +347,12 @@ pub fn compute_status(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn walk_directory(
     tree_root: &Path,
     current_dir: &Path,
     statuses: &mut Vec<StatusEntry>,
+    fingerprint_records: &mut Vec<FingerprintRecord>,
     policy: ChecksumPolicy,
     mode: StatusMode,
     purpose: StatusPurpose,
@@ -322,6 +376,7 @@ fn walk_directory(
         &ward_entries,
         &fs_entries,
         statuses,
+        fingerprint_records,
         policy,
         mode,
         purpose,
@@ -335,6 +390,7 @@ fn walk_directory(
                 tree_root,
                 &child_path,
                 statuses,
+                fingerprint_records,
                 policy,
                 mode,
                 purpose,
@@ -350,6 +406,7 @@ fn walk_directory(
                 tree_root,
                 &child_path,
                 statuses,
+                fingerprint_records,
                 policy,
                 mode,
                 purpose,
@@ -401,6 +458,7 @@ fn compare_entries(
     ward_entries: &BTreeMap<String, WardEntry>,
     fs_entries: &BTreeMap<String, FsEntry>,
     statuses: &mut Vec<StatusEntry>,
+    fingerprint_records: &mut Vec<FingerprintRecord>,
     policy: ChecksumPolicy,
     mode: StatusMode,
     purpose: StatusPurpose,
@@ -410,6 +468,7 @@ fn compare_entries(
         if !ward_entries.contains_key(name) {
             let relative_path = make_relative_path(tree_root, current_dir, name)?;
             let fs_entry = &fs_entries[name];
+            let fingerprint_payload = fingerprint_payload_from_fs_entry(fs_entry, None)?;
 
             let ward_entry = if purpose == StatusPurpose::WardUpdate {
                 Some(build_ward_entry_from_fs(current_dir, name, fs_entry)?)
@@ -418,8 +477,13 @@ fn compare_entries(
             };
 
             statuses.push(StatusEntry::Added {
-                path: relative_path,
+                path: relative_path.clone(),
                 ward_entry,
+            });
+            fingerprint_records.push(FingerprintRecord {
+                path: relative_path,
+                status_type: StatusType::Added,
+                payload: fingerprint_payload,
             });
         }
     }
@@ -427,14 +491,22 @@ fn compare_entries(
     for name in ward_entries.keys() {
         if !fs_entries.contains_key(name) {
             let relative_path = make_relative_path(tree_root, current_dir, name)?;
+            let removed_ward_entry = ward_entries[name].clone();
             let old_ward_entry = if diff_mode == DiffMode::Capture {
-                Some(ward_entries[name].clone())
+                Some(removed_ward_entry.clone())
             } else {
                 None
             };
             statuses.push(StatusEntry::Removed {
-                path: relative_path,
+                path: relative_path.clone(),
                 old_ward_entry,
+            });
+            fingerprint_records.push(FingerprintRecord {
+                path: relative_path,
+                status_type: StatusType::Removed,
+                payload: FingerprintPayload::Removed {
+                    ward_entry: removed_ward_entry,
+                },
             });
         }
     }
@@ -448,6 +520,7 @@ fn compare_entries(
                 ward_entry,
                 fs_entry,
                 statuses,
+                fingerprint_records,
                 policy,
                 mode,
                 purpose,
@@ -478,6 +551,7 @@ fn check_modification(
     ward_entry: &WardEntry,
     fs_entry: &FsEntry,
     statuses: &mut Vec<StatusEntry>,
+    fingerprint_records: &mut Vec<FingerprintRecord>,
     policy: ChecksumPolicy,
     mode: StatusMode,
     purpose: StatusPurpose,
@@ -545,21 +619,45 @@ fn check_modification(
                     None
                 };
 
+            // Fingerprint should reflect file state at status-time, not just path/status.
+            let fingerprint_payload = FingerprintPayload::File {
+                mtime_nanos: fs_mtime_nanos,
+                size: *fs_size,
+                sha256: if need_checksum_for_status {
+                    // Include hash only when status policy was checksum-driven.
+                    // This preserves fingerprint parity between `status` and `update`
+                    // when the same verify flags are used.
+                    new_checksum.as_ref().map(|c| c.sha256.clone())
+                } else {
+                    None
+                },
+            };
+
             if metadata_differs && !need_checksum_for_status {
                 // Policy says don't checksum for status reporting, so report
                 // PossiblyModified regardless of whether we checksummed for ward
                 // building. This ensures fingerprint consistency between status
                 // and ward commands when using the same --verify/--always-verify flags.
                 statuses.push(StatusEntry::PossiblyModified {
-                    path: relative_path,
+                    path: relative_path.clone(),
                     ward_entry: new_ward_entry,
                     old_ward_entry,
                 });
+                fingerprint_records.push(FingerprintRecord {
+                    path: relative_path,
+                    status_type: StatusType::PossiblyModified,
+                    payload: fingerprint_payload,
+                });
             } else if sha256_differs {
                 statuses.push(StatusEntry::Modified {
-                    path: relative_path,
+                    path: relative_path.clone(),
                     ward_entry: new_ward_entry,
                     old_ward_entry,
+                });
+                fingerprint_records.push(FingerprintRecord {
+                    path: relative_path,
+                    status_type: StatusType::Modified,
+                    payload: fingerprint_payload,
                 });
             } else if mode == StatusMode::All || purpose == StatusPurpose::WardUpdate {
                 statuses.push(StatusEntry::Unchanged {
@@ -605,9 +703,16 @@ fn check_modification(
                     None
                 };
                 statuses.push(StatusEntry::Modified {
-                    path: relative_path,
+                    path: relative_path.clone(),
                     ward_entry: new_ward_entry,
                     old_ward_entry,
+                });
+                fingerprint_records.push(FingerprintRecord {
+                    path: relative_path,
+                    status_type: StatusType::Modified,
+                    payload: FingerprintPayload::Symlink {
+                        symlink_target: fs_target.clone(),
+                    },
                 });
             } else if mode == StatusMode::All || purpose == StatusPurpose::WardUpdate {
                 statuses.push(StatusEntry::Unchanged {
@@ -629,10 +734,16 @@ fn check_modification(
             } else {
                 None
             };
+            let fingerprint_payload = fingerprint_payload_from_fs_entry(fs_entry, None)?;
             statuses.push(StatusEntry::Modified {
-                path: relative_path,
+                path: relative_path.clone(),
                 ward_entry: new_ward_entry,
                 old_ward_entry,
+            });
+            fingerprint_records.push(FingerprintRecord {
+                path: relative_path,
+                status_type: StatusType::Modified,
+                payload: fingerprint_payload,
             });
         }
     }
@@ -670,26 +781,102 @@ fn make_relative_path(
     path_to_str(&relative_path).map(|s| s.to_string())
 }
 
-fn compute_fingerprint(statuses: &[StatusEntry]) -> String {
+fn fingerprint_payload_from_fs_entry(
+    fs_entry: &FsEntry,
+    file_sha256: Option<String>,
+) -> Result<FingerprintPayload, StatusError> {
+    match fs_entry {
+        FsEntry::File { mtime, size } => Ok(FingerprintPayload::File {
+            mtime_nanos: mtime_to_nanos(mtime)?,
+            size: *size,
+            sha256: file_sha256,
+        }),
+        FsEntry::Dir { mtime } => Ok(FingerprintPayload::Dir {
+            mtime_nanos: mtime_to_nanos(mtime)?,
+        }),
+        FsEntry::Symlink { symlink_target } => Ok(FingerprintPayload::Symlink {
+            symlink_target: symlink_target.clone(),
+        }),
+    }
+}
+
+/// Stable short code used both in terminal output and fingerprint records.
+fn status_type_code(status_type: StatusType) -> &'static str {
+    match status_type {
+        StatusType::Added => "A",
+        StatusType::Removed => "R",
+        StatusType::PossiblyModified => "M?",
+        StatusType::Modified => "M",
+        StatusType::Unchanged => ".",
+    }
+}
+
+/// Hashes payload-specific fingerprint material.
+///
+/// Variant tags are included explicitly to prevent cross-variant collisions
+/// (for example, a removed file payload never collides with a live file payload
+/// that happens to contain the same scalar values).
+fn hash_fingerprint_payload(hasher: &mut Sha256, payload: &FingerprintPayload) {
+    match payload {
+        FingerprintPayload::File {
+            mtime_nanos,
+            size,
+            sha256,
+        } => {
+            hasher.update(b"file");
+            hashing::hash_u64_field(hasher, *mtime_nanos);
+            hashing::hash_u64_field(hasher, *size);
+            match sha256 {
+                Some(sha) => {
+                    hasher.update([1u8]);
+                    hashing::hash_field(hasher, sha.as_bytes());
+                }
+                None => {
+                    hasher.update([0u8]);
+                }
+            }
+        }
+        FingerprintPayload::Dir { mtime_nanos } => {
+            hasher.update(b"dir");
+            hashing::hash_u64_field(hasher, *mtime_nanos);
+        }
+        FingerprintPayload::Symlink { symlink_target } => {
+            hasher.update(b"symlink");
+            hashing::hash_path_field(hasher, symlink_target);
+        }
+        FingerprintPayload::Removed { ward_entry } => match ward_entry {
+            WardEntry::File {
+                sha256,
+                mtime_nanos,
+                size,
+            } => {
+                hasher.update(b"removed_file");
+                hashing::hash_field(hasher, sha256.as_bytes());
+                hashing::hash_u64_field(hasher, *mtime_nanos);
+                hashing::hash_u64_field(hasher, *size);
+            }
+            WardEntry::Dir {} => {
+                hasher.update(b"removed_dir");
+            }
+            WardEntry::Symlink { symlink_target } => {
+                hasher.update(b"removed_symlink");
+                hashing::hash_path_field(hasher, symlink_target);
+            }
+        },
+    }
+}
+
+/// Computes the fingerprint for all interesting status entries.
+///
+/// Unchanged entries are intentionally excluded because fingerprints are used to
+/// guard the reviewed change set for init/update acceptance.
+fn compute_fingerprint(records: &[FingerprintRecord]) -> String {
     let mut hasher = Sha256::new();
 
-    for entry in statuses {
-        if matches!(entry.status_type(), StatusType::Unchanged) {
-            continue;
-        }
-
-        hasher.update(entry.path().as_bytes());
-        hasher.update(b"|");
-
-        let status_type_str = match entry.status_type() {
-            StatusType::Added => "A",
-            StatusType::Removed => "R",
-            StatusType::PossiblyModified => "M?",
-            StatusType::Modified => "M",
-            StatusType::Unchanged => unreachable!(),
-        };
-        hasher.update(status_type_str.as_bytes());
-        hasher.update(b"\n");
+    for record in records {
+        hashing::hash_field(&mut hasher, record.path.as_bytes());
+        hashing::hash_field(&mut hasher, status_type_code(record.status_type).as_bytes());
+        hash_fingerprint_payload(&mut hasher, &record.payload);
     }
 
     let hash_bytes = hasher.finalize();
