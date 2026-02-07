@@ -309,6 +309,57 @@ fn update_default_succeeds_when_fingerprints_match() {
         .success();
 }
 
+#[test]
+fn update_fingerprint_rejects_second_edit_of_already_modified_file() {
+    let temp = TempDir::new().unwrap();
+    let file_path = temp.path().join("file.txt");
+    fs::write(&file_path, "aaaaa").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("init")
+        .assert()
+        .success();
+
+    // First edit: status should report M? and produce fingerprint.
+    fs::write(&file_path, "bbbbb").unwrap();
+    set_file_mtime(&file_path, FileTime::from_unix_time(1_000_000_000, 0)).unwrap();
+
+    let status_output = cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("status")
+        .output()
+        .unwrap();
+    assert!(
+        !status_output.status.success(),
+        "status should report pending changes after first edit"
+    );
+
+    let output_str = String::from_utf8(status_output.stdout).unwrap();
+    assert!(
+        output_str.contains("M? file.txt"),
+        "expected metadata-only modified status, got: {}",
+        output_str
+    );
+    let fingerprint = extract_fingerprint(&output_str);
+
+    // Second edit before update: same path/status class but different file state.
+    fs::write(&file_path, "ccccc").unwrap();
+    set_file_mtime(&file_path, FileTime::from_unix_time(1_000_000_001, 0)).unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("update")
+        .arg("--fingerprint")
+        .arg(&fingerprint)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Fingerprint mismatch"));
+}
+
 /// Tests that mismatched verification flags cause fingerprint mismatch when
 /// metadata changes but content stays the same.
 #[test]

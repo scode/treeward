@@ -4,6 +4,7 @@ mod diffing;
 mod dir_list;
 mod status;
 mod update;
+mod util;
 mod ward_file;
 
 use cli::{Cli, Command};
