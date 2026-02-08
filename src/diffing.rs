@@ -1,3 +1,8 @@
+//! Presentation layer for status output.
+//!
+//! Formats `status::StatusEntry` values for terminal output and optional
+//! field-level diffs.
+
 use crate::status;
 use crate::ward_file::WardEntry;
 
