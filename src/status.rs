@@ -1,3 +1,11 @@
+//! Tree reconciliation and change classification engine.
+//!
+//! `compute_status` recursively compares filesystem state with `.treeward`
+//! snapshots and classifies each entry under configurable checksum policies.
+//!
+//! The traversal also emits fingerprint records and can materialize complete
+//! `WardEntry` values for the update path via `StatusPurpose::WardUpdate`.
+
 use crate::checksum::{ChecksumError, checksum_file};
 use crate::dir_list::{DirListError, FsEntry, list_directory};
 use crate::util::hashing;

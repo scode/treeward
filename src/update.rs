@@ -1,3 +1,9 @@
+//! Ward-file write pipeline built on top of status computation.
+//!
+//! Runs status traversal in ward-update mode, validates optional fingerprints,
+//! builds new per-directory ward snapshots, and writes changed `.treeward`
+//! files.
+
 use crate::checksum::ChecksumError;
 use crate::dir_list::DirListError;
 use crate::status::{

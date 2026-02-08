@@ -1,3 +1,11 @@
+//! File checksumming primitive used by status and update workflows.
+//!
+//! Computes SHA-256 for regular files and returns checksum, mtime, and size
+//! values used to build `WardEntry::File`.
+//!
+//! Concurrent modification is detected by comparing mtimes before and after the
+//! read, returning `ChecksumError::ConcurrentModification` when they differ.
+
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Read;

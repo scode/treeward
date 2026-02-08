@@ -1,3 +1,10 @@
+//! Persistent `.treeward` schema and I/O.
+//!
+//! This module defines the versioned TOML format that stores per-directory ward
+//! state. Parsing checks file version and schema fields.
+//!
+//! Saving writes through a temp file, fsync, and rename sequence.
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

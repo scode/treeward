@@ -1,3 +1,10 @@
+//! Binary entrypoint and command orchestration for treeward.
+//!
+//! This module parses CLI arguments, maps flags to status/update options,
+//! dispatches commands, and sets process exit codes.
+//!
+//! Tracing setup for CLI output is initialized here.
+
 mod checksum;
 mod cli;
 mod diffing;

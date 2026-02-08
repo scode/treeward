@@ -1,3 +1,7 @@
+//! Centralized long-form help text for CLI commands.
+//!
+//! `cli` references these constants for command `long_about` output.
+
 pub(super) const ROOT_LONG_ABOUT: &str = "\
 File integrity tool for checksumming and verifying trees
 

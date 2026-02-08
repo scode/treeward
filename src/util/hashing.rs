@@ -1,3 +1,8 @@
+//! Canonical hashing helpers for stable fingerprints.
+//!
+//! Provides canonical encodings for byte fields, integers, and paths used by
+//! fingerprint construction.
+
 use sha2::{Digest, Sha256};
 use std::path::Path;
 

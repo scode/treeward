@@ -1,3 +1,8 @@
+//! Command-line interface schema for treeward.
+//!
+//! Defines clap structs/enums for global flags and subcommands.
+//! Long-form command text is sourced from `help_text`.
+
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
