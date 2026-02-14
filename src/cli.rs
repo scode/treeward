@@ -3,10 +3,20 @@
 //! Defines clap structs/enums for global flags and subcommands.
 //! Long-form command text is sourced from `help_text`.
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 mod help_text;
+
+/// Explicit logging level for CLI output.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
 
 /// File integrity tool for checksumming and verifying trees
 #[derive(Parser, Debug)]
@@ -21,9 +31,21 @@ pub struct Cli {
     #[arg(short = 'C', value_name = "DIRECTORY", global = true)]
     pub directory: Option<PathBuf>,
 
-    /// Increase verbosity (-v for info, -vv for debug)
+    /// Increase verbosity (-v for info, -vv for debug).
+    /// Takes precedence over RUST_LOG.
     #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count, global = true)]
     pub verbose: u8,
+
+    /// Set log level explicitly (error, warn, info, debug, trace).
+    /// Takes precedence over RUST_LOG.
+    #[arg(
+        long = "log-level",
+        value_enum,
+        value_name = "LEVEL",
+        conflicts_with = "verbose",
+        global = true
+    )]
+    pub log_level: Option<LogLevel>,
 
     #[command(subcommand)]
     pub command: Command,

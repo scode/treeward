@@ -73,6 +73,15 @@ GLOBAL OPTIONS:
     Change to directory before operating (like git -C or make -C).
     Defaults to current directory if not specified.
 
+  -v, --verbose
+    Increase verbosity. -v shows info logs, -vv (or higher) shows debug logs.
+    Takes precedence over RUST_LOG.
+
+  --log-level <LEVEL>
+    Set log level explicitly: error, warn, info, debug, or trace.
+    Takes precedence over RUST_LOG.
+    Conflicts with -v/--verbose.
+
 COMMON USE CASES:
 
   Track changes in a project:
