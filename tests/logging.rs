@@ -3,6 +3,126 @@ use predicates::prelude::*;
 use std::fs;
 use tempfile::TempDir;
 
+fn temp_dir_with_file() -> TempDir {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+    temp
+}
+
+#[test]
+fn init_without_flags_respects_rust_log_info() {
+    let temp = temp_dir_with_file();
+
+    cargo_bin_cmd!("treeward")
+        .env("RUST_LOG", "info")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Warded 1 files"));
+}
+
+#[test]
+fn init_without_flags_respects_rust_log_warn() {
+    let temp = temp_dir_with_file();
+
+    cargo_bin_cmd!("treeward")
+        .env("RUST_LOG", "warn")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn verbose_overrides_rust_log_warn() {
+    let temp = temp_dir_with_file();
+
+    cargo_bin_cmd!("treeward")
+        .env("RUST_LOG", "warn")
+        .arg("-v")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Warded 1 files"));
+}
+
+#[test]
+fn verbose_debug_overrides_rust_log_warn() {
+    let temp = temp_dir_with_file();
+
+    cargo_bin_cmd!("treeward")
+        .env("RUST_LOG", "warn")
+        .arg("-vv")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Checksum of"));
+}
+
+#[test]
+fn log_level_overrides_rust_log_warn() {
+    let temp = temp_dir_with_file();
+
+    cargo_bin_cmd!("treeward")
+        .env("RUST_LOG", "warn")
+        .arg("--log-level")
+        .arg("info")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Warded 1 files"));
+}
+
+#[test]
+fn trace_log_level_emits_debug_messages() {
+    let temp = temp_dir_with_file();
+
+    cargo_bin_cmd!("treeward")
+        .env("RUST_LOG", "warn")
+        .arg("--log-level")
+        .arg("trace")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Checksum of"));
+}
+
+#[test]
+fn log_level_conflicts_with_verbose() {
+    cargo_bin_cmd!("treeward")
+        .arg("--log-level")
+        .arg("info")
+        .arg("-v")
+        .arg("status")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--log-level <LEVEL>"))
+        .stderr(predicate::str::contains("--verbose"));
+}
+
+#[test]
+fn help_mentions_rust_log_precedence_for_logging_flags() {
+    cargo_bin_cmd!("treeward")
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("-v, --verbose"))
+        .stdout(predicate::str::contains("--log-level <LEVEL>"))
+        .stdout(predicate::str::contains("Takes precedence over RUST_LOG."));
+}
+
 #[cfg(unix)]
 #[test]
 fn status_permission_error_logs_to_stderr_not_stdout() {

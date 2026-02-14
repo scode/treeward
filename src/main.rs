@@ -14,7 +14,7 @@ mod update;
 mod util;
 mod ward_file;
 
-use cli::{Cli, Command};
+use cli::{Cli, Command, LogLevel};
 use status::ChecksumPolicy;
 use std::fmt as stdfmt;
 use std::io::{IsTerminal, stderr};
@@ -64,7 +64,7 @@ impl WardExitCode {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    init_tracing(cli.verbose);
+    init_tracing(cli.verbose, cli.log_level);
 
     // Change working directory if -C was specified
     if let Some(directory) = cli.directory
@@ -244,18 +244,37 @@ fn handle_verify(path: PathBuf) -> anyhow::Result<ExitCode> {
     Ok(WardExitCode::status_unclean())
 }
 
-fn init_tracing(verbose: u8) {
-    let stderr_is_terminal = stderr().is_terminal();
-    let formatter = EmojiFormatter { stderr_is_terminal };
-
-    let default_level = match verbose {
+fn log_level_from_verbose(verbose: u8) -> &'static str {
+    match verbose {
         0 => "warn",
         1 => "info",
         _ => "debug",
-    };
+    }
+}
 
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
+fn explicit_log_level(log_level: LogLevel) -> &'static str {
+    match log_level {
+        LogLevel::Error => "error",
+        LogLevel::Warn => "warn",
+        LogLevel::Info => "info",
+        LogLevel::Debug => "debug",
+        LogLevel::Trace => "trace",
+    }
+}
+
+fn init_tracing(verbose: u8, log_level: Option<LogLevel>) {
+    let stderr_is_terminal = stderr().is_terminal();
+    let formatter = EmojiFormatter { stderr_is_terminal };
+
+    let default_level = log_level_from_verbose(verbose);
+
+    let filter = if let Some(log_level) = log_level {
+        EnvFilter::new(explicit_log_level(log_level))
+    } else if verbose > 0 {
+        EnvFilter::new(default_level)
+    } else {
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level))
+    };
 
     let fmt_layer = tracing_fmt::layer()
         .event_format(formatter)
