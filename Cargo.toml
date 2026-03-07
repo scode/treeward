@@ -3,8 +3,9 @@ name = "treeward"
 version = "0.1.0"
 authors = ["Peter Schuller <peter.schuller@infidyne.com>"]
 edition = "2024"
+homepage = "https://github.com/scode/treeward"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/treeward"
+repository = "https://github.com/scode/treeward"
 description = "A command line tool for checksumming and verifying trees of files"
 
 [dependencies]
@@ -28,3 +29,8 @@ assert_cmd = "2.0"
 filetime = "0.2"
 nix = { version = "0.29", features = ["fs"] }
 predicates = "3.1"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
