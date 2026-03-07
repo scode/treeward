@@ -45,9 +45,24 @@ Guidance for agents editing this repository.
 - Visit subdirectories found in either source.
 - Canonicalize the root path before recursive operations.
 
+## PR Titles
+
+PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/) style. This is enforced by CI and
+used by git-cliff for changelog generation.
+
+- Allowed types: `feat`, `fix`, `docs`, `doc`, `perf`, `refactor`, `style`, `test`, `chore`, `ci`, `revert`.
+- Scope is optional. Examples: `feat: add user login`, `fix(parser): handle empty input`.
+- Type must reflect user-visible behavior, not implementation activity.
+- CLI interface or behavior changes must be `feat`, `fix`, or `perf` (use `!` when breaking), not `refactor`.
+- Every PR body must contain exactly one of `changelog: include` or `changelog: skip`. This is enforced by CI.
+
+## Releasing
+
+When the user asks to make or cut a release, follow the Releasing section of `CONTRIBUTING.md`.
+
 ## Validation Before Finishing
 
 - `cargo test`
-- `cargo clippy -- -D warnings`
+- `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo fmt`
 - `dprint fmt`

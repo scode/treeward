@@ -223,7 +223,7 @@ mod tests {
     fn make_file(size: u64, sha256: &str) -> WardEntry {
         WardEntry::File {
             sha256: sha256.to_string(),
-            mtime_nanos: 1704067200_000_000_000,
+            mtime_nanos: 1_704_067_200_000_000_000,
             size,
         }
     }
@@ -362,8 +362,8 @@ mod tests {
 
     #[test]
     fn diff_modified_file_mtime_change() {
-        let old_mtime: u64 = 1000000000_000_000_000;
-        let new_mtime: u64 = 1100000000_000_000_000;
+        let old_mtime: u64 = 1_000_000_000_000_000_000;
+        let new_mtime: u64 = 1_100_000_000_000_000_000;
 
         let old = make_file_with_mtime(
             100,

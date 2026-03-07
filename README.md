@@ -25,6 +25,12 @@ directories to be moved independently while maintaining integrity information.
 ## Installation
 
 ```bash
+brew install scode/dist-tap/treeward
+```
+
+If you want a local build instead, use:
+
+```bash
 cargo install --path .
 ```
 

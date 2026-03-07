@@ -290,26 +290,6 @@ struct EmojiFormatter {
     stderr_is_terminal: bool,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::follow_up_verify_flag;
-
-    #[test]
-    fn follow_up_hint_uses_verify_when_diff_is_enabled() {
-        assert_eq!(follow_up_verify_flag(false, false, true), " --verify");
-    }
-
-    #[test]
-    fn follow_up_hint_uses_always_verify_when_requested() {
-        assert_eq!(follow_up_verify_flag(true, false, true), " --always-verify");
-    }
-
-    #[test]
-    fn follow_up_hint_has_no_verify_flag_by_default() {
-        assert_eq!(follow_up_verify_flag(false, false, false), "");
-    }
-}
-
 impl<S, N> FormatEvent<S, N> for EmojiFormatter
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
@@ -341,5 +321,25 @@ where
 
         ctx.format_fields(writer.by_ref(), event)?;
         writeln!(writer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::follow_up_verify_flag;
+
+    #[test]
+    fn follow_up_hint_uses_verify_when_diff_is_enabled() {
+        assert_eq!(follow_up_verify_flag(false, false, true), " --verify");
+    }
+
+    #[test]
+    fn follow_up_hint_uses_always_verify_when_requested() {
+        assert_eq!(follow_up_verify_flag(true, false, true), " --always-verify");
+    }
+
+    #[test]
+    fn follow_up_hint_has_no_verify_flag_by_default() {
+        assert_eq!(follow_up_verify_flag(false, false, false), "");
     }
 }
