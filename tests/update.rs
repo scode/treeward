@@ -254,6 +254,76 @@ fn update_fingerprint_rejects_second_edit_of_already_modified_file() {
         .stderr(predicate::str::contains("Fingerprint mismatch"));
 }
 
+#[test]
+fn update_always_verify_rejects_second_edit_of_added_file_with_preserved_metadata() {
+    update_rejects_second_edit_of_added_file_with_preserved_metadata(&["--always-verify"]);
+}
+
+#[test]
+fn update_verify_rejects_second_edit_of_added_file_with_preserved_metadata() {
+    update_rejects_second_edit_of_added_file_with_preserved_metadata(&["--verify"]);
+}
+
+fn update_rejects_second_edit_of_added_file_with_preserved_metadata(verify_args: &[&str]) {
+    let temp = TempDir::new().unwrap();
+
+    treeward_cmd(temp.path()).arg("init").assert().success();
+
+    let file_path = temp.path().join("added.txt");
+    fs::write(&file_path, "aaaaa").unwrap();
+    set_file_mtime(&file_path, FileTime::from_unix_time(1_000_000_000, 0)).unwrap();
+
+    let (_, fingerprint) = status_fingerprint(temp.path(), verify_args);
+
+    fs::write(&file_path, "bbbbb").unwrap();
+    set_file_mtime(&file_path, FileTime::from_unix_time(1_000_000_000, 0)).unwrap();
+
+    treeward_cmd(temp.path())
+        .arg("update")
+        .args(verify_args)
+        .arg("--fingerprint")
+        .arg(&fingerprint)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Fingerprint mismatch"));
+}
+
+#[test]
+fn update_always_verify_rejects_second_edit_of_type_changed_file_with_preserved_metadata() {
+    update_rejects_second_edit_of_type_changed_file_with_preserved_metadata(&["--always-verify"]);
+}
+
+#[test]
+fn update_verify_rejects_second_edit_of_type_changed_file_with_preserved_metadata() {
+    update_rejects_second_edit_of_type_changed_file_with_preserved_metadata(&["--verify"]);
+}
+
+fn update_rejects_second_edit_of_type_changed_file_with_preserved_metadata(verify_args: &[&str]) {
+    let temp = TempDir::new().unwrap();
+    let changed_path = temp.path().join("entry");
+    fs::create_dir(&changed_path).unwrap();
+
+    treeward_cmd(temp.path()).arg("init").assert().success();
+
+    fs::remove_dir_all(&changed_path).unwrap();
+    fs::write(&changed_path, "aaaaa").unwrap();
+    set_file_mtime(&changed_path, FileTime::from_unix_time(1_000_000_000, 0)).unwrap();
+
+    let (_, fingerprint) = status_fingerprint(temp.path(), verify_args);
+
+    fs::write(&changed_path, "bbbbb").unwrap();
+    set_file_mtime(&changed_path, FileTime::from_unix_time(1_000_000_000, 0)).unwrap();
+
+    treeward_cmd(temp.path())
+        .arg("update")
+        .args(verify_args)
+        .arg("--fingerprint")
+        .arg(&fingerprint)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Fingerprint mismatch"));
+}
+
 /// Tests that mismatched verification flags cause fingerprint mismatch when
 /// metadata changes but content stays the same.
 #[test]
