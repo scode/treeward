@@ -99,7 +99,7 @@ pub struct WardResult {
 /// * `ward_files_updated` - Relative paths of `.treeward` files that were written (or
 ///   would be written in dry-run mode)
 pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, WardError> {
-    let root = root.to_path_buf();
+    let root = root.canonicalize().map_err(DirListError::Io)?;
 
     let ward_path = root.join(".treeward");
 
@@ -215,6 +215,42 @@ mod tests {
 
         let dir1_ward = WardFile::load(&root.join("dir1/.treeward")).unwrap();
         assert!(dir1_ward.entries.contains_key("file2.txt"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_ward_directory_accepts_symlinked_root() {
+        let temp = TempDir::new().unwrap();
+        let real_root = temp.path().join("real");
+        let linked_root = temp.path().join("linked");
+        fs::create_dir(&real_root).unwrap();
+        unix::fs::symlink(&real_root, &linked_root).unwrap();
+
+        fs::create_dir(real_root.join("dir")).unwrap();
+        fs::write(real_root.join("dir/file.txt"), "content").unwrap();
+
+        let options = WardOptions {
+            init: true,
+            allow_init: false,
+            fingerprint: None,
+            dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
+        };
+
+        let result = ward_directory(&linked_root, options).unwrap();
+
+        assert!(
+            result
+                .ward_files_updated
+                .contains(&PathBuf::from(".treeward"))
+        );
+        assert!(
+            result
+                .ward_files_updated
+                .contains(&PathBuf::from("dir/.treeward"))
+        );
+        assert!(real_root.join(".treeward").exists());
+        assert!(real_root.join("dir/.treeward").exists());
     }
 
     #[test]
