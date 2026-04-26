@@ -88,7 +88,7 @@ fn main() -> ExitCode {
             verify,
             always_verify,
         } => handle_init_or_update(
-            current_dir.clone(),
+            current_dir,
             false,
             allow_init,
             fingerprint,
@@ -102,7 +102,7 @@ fn main() -> ExitCode {
             verify,
             always_verify,
         } => handle_init_or_update(
-            current_dir.clone(),
+            current_dir,
             true,
             false,
             fingerprint,
@@ -115,7 +115,7 @@ fn main() -> ExitCode {
             always_verify,
             all,
             diff,
-        } => handle_status(current_dir.clone(), verify, always_verify, all, diff),
+        } => handle_status(current_dir, verify, always_verify, all, diff),
         Command::Verify {} => handle_verify(current_dir),
     };
 
