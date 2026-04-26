@@ -56,19 +56,7 @@ fn format_diff_lines(entry: &status::StatusEntry) -> Vec<String> {
 }
 
 fn format_was_entry(entry: &WardEntry) -> String {
-    match entry {
-        WardEntry::File { sha256, size, .. } => {
-            format!(
-                "   was: file ({}, sha256: {})",
-                format_size(*size),
-                truncate_sha256(sha256)
-            )
-        }
-        WardEntry::Dir {} => "   was: directory".to_string(),
-        WardEntry::Symlink { symlink_target } => {
-            format!("   was: symlink -> {}", symlink_target.display())
-        }
-    }
+    format!("   was: {}", format_entry_type(entry))
 }
 
 fn format_was_entry_verbose(entry: &WardEntry) -> String {

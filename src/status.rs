@@ -372,7 +372,7 @@ fn walk_directory(
 
     let ward_path = current_dir.join(".treeward");
     let ward_file = WardFile::load_if_exists(&ward_path)?;
-    let ward_entries = ward_file.map(|wf| wf.entries).unwrap_or_else(BTreeMap::new);
+    let ward_entries = ward_file.map(|wf| wf.entries).unwrap_or_default();
 
     let fs_entries = match list_directory(current_dir) {
         Ok(entries) => entries,
@@ -474,10 +474,9 @@ fn compare_entries(
     purpose: StatusPurpose,
     diff_mode: DiffMode,
 ) -> Result<(), StatusError> {
-    for name in fs_entries.keys() {
+    for (name, fs_entry) in fs_entries {
         if !ward_entries.contains_key(name) {
             let relative_path = make_relative_path(tree_root, current_dir, name)?;
-            let fs_entry = &fs_entries[name];
 
             let ward_entry = if purpose == StatusPurpose::WardUpdate {
                 Some(build_ward_entry_from_fs(current_dir, name, fs_entry)?)
@@ -504,10 +503,9 @@ fn compare_entries(
         }
     }
 
-    for name in ward_entries.keys() {
+    for (name, removed_ward_entry) in ward_entries {
         if !fs_entries.contains_key(name) {
             let relative_path = make_relative_path(tree_root, current_dir, name)?;
-            let removed_ward_entry = ward_entries[name].clone();
             let old_ward_entry = if diff_mode == DiffMode::Capture {
                 Some(removed_ward_entry.clone())
             } else {
@@ -521,7 +519,7 @@ fn compare_entries(
                 path: relative_path,
                 status_type: StatusType::Removed,
                 payload: FingerprintPayload::Removed {
-                    ward_entry: removed_ward_entry,
+                    ward_entry: removed_ward_entry.clone(),
                 },
             });
         }
@@ -985,7 +983,7 @@ pub fn build_ward_files(
                     .to_string();
 
                 dir_entries
-                    .entry(parent_dir.clone())
+                    .entry(parent_dir)
                     .or_default()
                     .insert(filename, ward_entry.clone());
 
