@@ -1,6 +1,6 @@
 [package]
 name = "treeward"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Peter Schuller <peter.schuller@infidyne.com>"]
 edition = "2024"
 homepage = "https://github.com/scode/treeward"
