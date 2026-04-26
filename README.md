@@ -402,9 +402,9 @@ treeward update  # Always succeeds, no fingerprint check
 
 Standard Rust idioms apply:
 
-- `cargo test`
+- `cargo test --locked --all-features --all-targets`
 - `cargo fmt`
-- `cargo clippy -- -D warnings`
+- `cargo clippy --all-targets --all-features -- -D warnings`
 
 ## License
 
