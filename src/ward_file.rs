@@ -21,6 +21,8 @@ pub enum WardFileError {
     TomlSerialize(#[from] toml::ser::Error),
     #[error("Unsupported ward file version: {0}")]
     UnsupportedVersion(u32),
+    #[error("Invalid ward entry name: {0}")]
+    InvalidEntryName(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,7 +93,25 @@ impl WardFile {
 
         // Version is supported, now parse the full file
         let ward_file: WardFile = toml::from_str(content)?;
+        ward_file.validate_entry_names()?;
         Ok(ward_file)
+    }
+
+    /// Reject persisted names that cannot be produced by directory listing.
+    ///
+    /// A ward file stores only immediate children of one directory. Entry names
+    /// therefore must be plain file names, not relative paths. Accepting path
+    /// components from TOML would let a corrupted or hostile ward file steer
+    /// traversal and update writes outside the directory it is supposed to
+    /// describe.
+    fn validate_entry_names(&self) -> Result<(), WardFileError> {
+        for name in self.entries.keys() {
+            if !is_valid_entry_name(name) {
+                return Err(WardFileError::InvalidEntryName(name.clone()));
+            }
+        }
+
+        Ok(())
     }
 
     /// Serialize a WardFile structure to TOML string
@@ -162,6 +182,10 @@ impl WardFile {
 
         Ok(())
     }
+}
+
+fn is_valid_entry_name(name: &str) -> bool {
+    !name.contains('\0') && Path::new(name).file_name().is_some_and(|part| part == name)
 }
 
 #[cfg(test)]
@@ -256,6 +280,36 @@ size = 456
         let result = WardFile::from_toml(toml_content);
         assert!(result.is_err());
         assert!(matches!(result, Err(WardFileError::TomlParse(_))));
+    }
+
+    #[test]
+    fn test_rejects_path_component_entry_names() {
+        for name in ["..", ".", "../outside", "/outside", "dir/file.txt"] {
+            let toml_content = format!(
+                r#"
+[metadata]
+version = 1
+
+[entries."{}"]
+type = "dir"
+"#,
+                name
+            );
+
+            let result = WardFile::from_toml(&toml_content);
+            assert!(matches!(result, Err(WardFileError::InvalidEntryName(_))));
+        }
+
+        let result = WardFile::from_toml(
+            r#"
+[metadata]
+version = 1
+
+[entries."bad\u0000name"]
+type = "dir"
+"#,
+        );
+        assert!(matches!(result, Err(WardFileError::InvalidEntryName(_))));
     }
 
     #[test]
