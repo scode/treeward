@@ -476,13 +476,19 @@ fn compare_entries(
         if !ward_entries.contains_key(name) {
             let relative_path = make_relative_path(tree_root, current_dir, name)?;
             let fs_entry = &fs_entries[name];
-            let fingerprint_payload = fingerprint_payload_from_fs_entry(fs_entry, None)?;
 
             let ward_entry = if purpose == StatusPurpose::WardUpdate {
                 Some(build_ward_entry_from_fs(current_dir, name, fs_entry)?)
             } else {
                 None
             };
+            let fingerprint_payload = current_entry_fingerprint_payload(
+                current_dir,
+                name,
+                fs_entry,
+                ward_entry.as_ref(),
+                policy,
+            )?;
 
             statuses.push(StatusEntry::Added {
                 path: relative_path.clone(),
@@ -742,7 +748,13 @@ fn check_modification(
             } else {
                 None
             };
-            let fingerprint_payload = fingerprint_payload_from_fs_entry(fs_entry, None)?;
+            let fingerprint_payload = current_entry_fingerprint_payload(
+                current_dir,
+                name,
+                fs_entry,
+                new_ward_entry.as_ref(),
+                policy,
+            )?;
             statuses.push(StatusEntry::Modified {
                 path: relative_path.clone(),
                 ward_entry: new_ward_entry,
@@ -787,6 +799,37 @@ fn make_relative_path(
     let relative_dir = current_dir.strip_prefix(tree_root)?;
     let relative_path = relative_dir.join(name);
     path_to_str(&relative_path).map(|s| s.to_string())
+}
+
+/// Builds fingerprint material for a filesystem-side entry with no comparable file ward state.
+///
+/// Added entries and type changes are already interesting without a checksum, but
+/// checksum-based policies still need file content in the fingerprint. Otherwise
+/// a file could be reviewed under `--verify` or `--always-verify`, changed while
+/// preserving size and mtime, and then accepted by `update --fingerprint`.
+fn current_entry_fingerprint_payload(
+    current_dir: &Path,
+    name: &str,
+    fs_entry: &FsEntry,
+    ward_entry: Option<&WardEntry>,
+    policy: ChecksumPolicy,
+) -> Result<FingerprintPayload, StatusError> {
+    let file_sha256 = if policy != ChecksumPolicy::Never {
+        match (fs_entry, ward_entry) {
+            (
+                FsEntry::File { .. },
+                Some(WardEntry::File {
+                    sha256: ward_sha, ..
+                }),
+            ) => Some(ward_sha.clone()),
+            (FsEntry::File { .. }, _) => Some(checksum_file(&current_dir.join(name))?.sha256),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    fingerprint_payload_from_fs_entry(fs_entry, file_sha256)
 }
 
 fn fingerprint_payload_from_fs_entry(

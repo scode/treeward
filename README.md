@@ -329,7 +329,9 @@ files.
 
 ### Fingerprinting in depth
 
-Fingerprints are SHA-256 hashes computed from the list of changes (path + status type). They serve two purposes:
+Fingerprints are SHA-256 hashes computed from the list of changes plus enough entry-specific data to identify what was
+reviewed. Every changed entry contributes its path and status type. Files also contribute mtime and size, and
+checksum-based policies include SHA-256 payloads for files that are checksummed as part of status.
 
 1. **TOCTOU protection** - Ensure the changes you reviewed are exactly what gets applied
 2. **Idempotency check** - Detect when the filesystem has drifted from what you expected
@@ -339,9 +341,11 @@ Fingerprints are SHA-256 hashes computed from the list of changes (path + status
 The `status` and `update`/`init` commands support the same verification flags:
 
 - Default (no flag): Only compare metadata (mtime/size). Files with changed metadata show as `M?` (PossiblyModified).
-- `--verify`: Checksum files whose metadata differs. Confirms whether content actually changed (`M`) or just metadata
-  (`M?` upgrades to clean if unchanged).
-- `--always-verify`: Checksum all files regardless of metadata. Detects silent corruption.
+- `--verify`: Checksum files whose metadata differs, plus new files and file replacements that need checksum-backed
+  fingerprint payloads. Confirms whether content actually changed (`M`) or just metadata (`M?` upgrades to clean if
+  unchanged).
+- `--always-verify`: Checksum all files regardless of metadata. New files and file replacements also carry checksum
+  payloads in fingerprints. Detects silent corruption.
 
 When using `--fingerprint`, you must use the same verification flags with both commands:
 
