@@ -448,7 +448,7 @@ The --diff flag implies --verify, since showing sha256 differences requires chec
 
 FINGERPRINTS:
 
-Every status check produces a unique fingerprint representing the exact changeset:
+When status finds changes, it produces a unique fingerprint representing the exact changeset:
 
   Fingerprint: abc123def456...
 

@@ -157,8 +157,8 @@ R  oldfile.txt
 
 **Fingerprints:**
 
-Every status check produces a unique fingerprint representing the exact changeset. Use it with `init --fingerprint` or
-`update --fingerprint` to ensure you're applying exactly the changes you reviewed:
+When `status` finds changes, it prints a fingerprint representing the exact changeset. Use it with `init --fingerprint`
+or `update --fingerprint` to ensure you're applying exactly the changes you reviewed:
 
 ```bash
 treeward status > review.txt
