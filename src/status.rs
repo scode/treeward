@@ -323,7 +323,9 @@ pub fn compute_status(
     purpose: StatusPurpose,
     diff_mode: DiffMode,
 ) -> Result<StatusResult, StatusError> {
-    let root = root.to_path_buf();
+    let root = root
+        .canonicalize()
+        .map_err(|e| StatusError::DirList(DirListError::Io(e)))?;
 
     let mut statuses = Vec::new();
     let mut fingerprint_records = Vec::new();

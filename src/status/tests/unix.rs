@@ -2,6 +2,33 @@ use super::*;
 
 #[test]
 #[cfg(unix)]
+fn test_status_accepts_symlinked_root() {
+    let temp = TempDir::new().unwrap();
+    let real_root = temp.path().join("real");
+    let linked_root = temp.path().join("linked");
+    fs::create_dir(&real_root).unwrap();
+    unix::fs::symlink(&real_root, &linked_root).unwrap();
+
+    create_ward_file(&real_root, BTreeMap::new());
+    fs::create_dir(real_root.join("dir")).unwrap();
+    fs::write(real_root.join("dir/file.txt"), "content").unwrap();
+
+    let result = compute_status(
+        &linked_root,
+        ChecksumPolicy::Never,
+        StatusMode::Interesting,
+        StatusPurpose::Display,
+        DiffMode::None,
+    )
+    .unwrap();
+
+    let paths: Vec<_> = result.statuses.iter().map(|status| status.path()).collect();
+    assert!(paths.contains(&"dir"));
+    assert!(paths.contains(&"dir/file.txt"));
+}
+
+#[test]
+#[cfg(unix)]
 fn test_symlink_target_changed() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
