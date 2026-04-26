@@ -18,6 +18,8 @@ pub enum ChecksumError {
     Io(std::io::Error),
     #[error("Permission denied: {0}")]
     PermissionDenied(PathBuf),
+    #[error("Not a regular file: {0}")]
+    NotRegularFile(PathBuf),
     #[error("File modified during checksumming: {0}")]
     ConcurrentModification(PathBuf),
 }
@@ -42,28 +44,17 @@ pub struct FileChecksum {
 /// # Errors (may be changed in the future)
 /// - `ChecksumError::Io`: File doesn't exist or other I/O errors
 /// - `ChecksumError::PermissionDenied`: Insufficient permissions to read the file
+/// - `ChecksumError::NotRegularFile`: Path does not name a regular file, including symlinks
 /// - `ChecksumError::ConcurrentModification`: File was detected as being modified while
 ///   checksumming. Note that the absence of this error is *not* a guarantee that the
 ///   file was *not* modified.
 pub fn checksum_file(path: &Path) -> Result<FileChecksum, ChecksumError> {
     info!("Checksumming {}", path.display());
 
-    let metadata_before = std::fs::metadata(path).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::PermissionDenied {
-            ChecksumError::PermissionDenied(path.to_path_buf())
-        } else {
-            ChecksumError::Io(e)
-        }
-    })?;
+    let mut file = open_regular_file_no_follow(path)?;
+    let metadata_before = file.metadata().map_err(ChecksumError::Io)?;
     let mtime_before = metadata_before.modified().map_err(ChecksumError::Io)?;
 
-    let mut file = File::open(path).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::PermissionDenied {
-            ChecksumError::PermissionDenied(path.to_path_buf())
-        } else {
-            ChecksumError::Io(e)
-        }
-    })?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 8192];
 
@@ -75,12 +66,13 @@ pub fn checksum_file(path: &Path) -> Result<FileChecksum, ChecksumError> {
         hasher.update(&buffer[..bytes_read]);
     }
 
-    let metadata_after = std::fs::metadata(path).map_err(ChecksumError::Io)?;
+    let metadata_after = file.metadata().map_err(ChecksumError::Io)?;
     let mtime_after = metadata_after.modified().map_err(ChecksumError::Io)?;
 
     if mtime_before != mtime_after {
         return Err(ChecksumError::ConcurrentModification(path.to_path_buf()));
     }
+    ensure_path_still_names_open_file(path, &metadata_after)?;
 
     let hash_bytes = hasher.finalize();
     let sha256 = format!("{:x}", hash_bytes);
@@ -92,6 +84,86 @@ pub fn checksum_file(path: &Path) -> Result<FileChecksum, ChecksumError> {
         mtime: mtime_after,
         size: metadata_after.len(),
     })
+}
+
+#[cfg(unix)]
+fn ensure_path_still_names_open_file(
+    path: &Path,
+    open_metadata: &std::fs::Metadata,
+) -> Result<(), ChecksumError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let path_metadata = std::fs::symlink_metadata(path).map_err(ChecksumError::Io)?;
+    if open_metadata.dev() != path_metadata.dev() || open_metadata.ino() != path_metadata.ino() {
+        return Err(ChecksumError::ConcurrentModification(path.to_path_buf()));
+    }
+
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn ensure_path_still_names_open_file(
+    _path: &Path,
+    _open_metadata: &std::fs::Metadata,
+) -> Result<(), ChecksumError> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn open_regular_file_no_follow(path: &Path) -> Result<File, ChecksumError> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                ChecksumError::PermissionDenied(path.to_path_buf())
+            } else if e.raw_os_error() == Some(libc::ELOOP) {
+                ChecksumError::NotRegularFile(path.to_path_buf())
+            } else {
+                ChecksumError::Io(e)
+            }
+        })?;
+
+    if !file.metadata().map_err(ChecksumError::Io)?.is_file() {
+        return Err(ChecksumError::NotRegularFile(path.to_path_buf()));
+    }
+
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn open_regular_file_no_follow(path: &Path) -> Result<File, ChecksumError> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                ChecksumError::PermissionDenied(path.to_path_buf())
+            } else {
+                ChecksumError::Io(e)
+            }
+        })?;
+
+    if !file.metadata().map_err(ChecksumError::Io)?.is_file() {
+        return Err(ChecksumError::NotRegularFile(path.to_path_buf()));
+    }
+
+    Ok(file)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_regular_file_no_follow(_path: &Path) -> Result<File, ChecksumError> {
+    Err(ChecksumError::Io(std::io::Error::other(
+        "no symlink-safe file open implementation for this platform",
+    )))
 }
 
 #[cfg(test)]
@@ -148,6 +220,21 @@ mod tests {
             Err(ChecksumError::Io(_)) => {}
             _ => panic!("Expected IO error for nonexistent file"),
         }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_checksum_rejects_symlink() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let target = temp_dir.path().join("target.txt");
+        let link = temp_dir.path().join("link.txt");
+
+        std::fs::write(&target, "target").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let result = checksum_file(&link);
+
+        assert!(matches!(result, Err(ChecksumError::NotRegularFile(_))));
     }
 
     #[test]
