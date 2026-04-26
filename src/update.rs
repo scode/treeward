@@ -293,7 +293,6 @@ mod tests {
         };
 
         ward_directory(root, init_options).unwrap();
-
         fs::write(root.join("file2.txt"), "content2").unwrap();
 
         let update_options = WardOptions {
@@ -327,7 +326,6 @@ mod tests {
         };
 
         ward_directory(root, init_options).unwrap();
-
         fs::write(root.join("file2.txt"), "content2").unwrap();
 
         // Both status and update must use the same checksum policy for
@@ -436,6 +434,8 @@ mod tests {
         };
 
         ward_directory(root, init_options).unwrap();
+        let ward_path = root.join(".treeward");
+        let ward_before = fs::read_to_string(&ward_path).unwrap();
 
         fs::write(root.join("file2.txt"), "content2").unwrap();
 
@@ -458,7 +458,15 @@ mod tests {
             _ => panic!("Expected FingerprintMismatch error"),
         }
 
-        assert!(!root.join("file2.txt").join(".treeward").exists());
+        let ward_after = fs::read_to_string(&ward_path).unwrap();
+        assert_eq!(
+            ward_before, ward_after,
+            "fingerprint mismatch must not rewrite the existing ward file"
+        );
+        assert!(
+            !ward_after.contains("file2.txt"),
+            "failed update must not accept the new file into the ward"
+        );
     }
 
     /// Tests TOCTOU protection: if a new file appears between `status` and `update`,
