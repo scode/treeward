@@ -208,7 +208,10 @@ mod tests {
 
         let result = checksum_file(temp_file.path()).unwrap();
 
-        assert_eq!(result.sha256.len(), 64);
+        assert_eq!(
+            result.sha256,
+            "4e29ad18ab9f42d7c233500771a39d7c852b200baf328fd00fbbe3fecea1eb56"
+        );
     }
 
     #[test]

@@ -239,7 +239,7 @@ type = "dir"
         assert_eq!(ward_file.entries.len(), 1);
 
         let entry = ward_file.entries.get("dir1").unwrap();
-        matches!(entry, WardEntry::Dir {});
+        assert!(matches!(entry, WardEntry::Dir {}));
     }
 
     #[test]
@@ -365,6 +365,7 @@ sha256 = "should_be_rejected"
         let toml_string = ward_file.to_toml().unwrap();
         let parsed = WardFile::from_toml(&toml_string).unwrap();
 
+        assert_eq!(parsed.entries, ward_file.entries);
         assert_eq!(parsed.entries.len(), 2);
         assert!(parsed.entries.contains_key("file1.txt"));
         assert!(parsed.entries.contains_key("dir1"));
