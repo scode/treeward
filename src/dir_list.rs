@@ -16,6 +16,20 @@ const TREEWARD_FILENAME: &str = ".treeward";
 pub enum DirListError {
     #[error("IO error: {0}")]
     Io(std::io::Error),
+    /// The listed directory itself does not exist.
+    ///
+    /// Kept distinct from `Io` so callers can treat a vanished directory as
+    /// "removed" without conflating it with per-entry NotFound inside an
+    /// existing directory — conflating the two would make a directory full of
+    /// intact files look empty when a single child vanishes mid-listing.
+    #[error("directory not found: {0}")]
+    DirectoryNotFound(PathBuf),
+    /// A child entry vanished between `read_dir` and inspecting it.
+    ///
+    /// Fatal, mirroring the checksumming concurrent-modification policy: a
+    /// race must surface as an error, never be misreported as a removal.
+    #[error("entry vanished during listing (concurrent modification): {0}")]
+    EntryVanished(PathBuf),
     #[error("Permission denied: {0}")]
     PermissionDenied(PathBuf),
     #[error("non-UTF-8 path not supported: {0:?}")]
@@ -35,6 +49,8 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
     let read_dir = std::fs::read_dir(root).map_err(|e| {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
             DirListError::PermissionDenied(root.to_path_buf())
+        } else if e.kind() == std::io::ErrorKind::NotFound {
+            DirListError::DirectoryNotFound(root.to_path_buf())
         } else {
             DirListError::Io(e)
         }
@@ -53,6 +69,8 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
         let metadata = std::fs::symlink_metadata(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::PermissionDenied {
                 DirListError::PermissionDenied(path.clone())
+            } else if e.kind() == std::io::ErrorKind::NotFound {
+                DirListError::EntryVanished(path.clone())
             } else {
                 DirListError::Io(e)
             }
@@ -71,6 +89,8 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
             let symlink_target = std::fs::read_link(&path).map_err(|e| {
                 if e.kind() == std::io::ErrorKind::PermissionDenied {
                     DirListError::PermissionDenied(path.clone())
+                } else if e.kind() == std::io::ErrorKind::NotFound {
+                    DirListError::EntryVanished(path.clone())
                 } else {
                     DirListError::Io(e)
                 }
@@ -166,6 +186,26 @@ mod tests {
         let entries = list_directory(root).unwrap();
 
         assert_eq!(entries.len(), 0);
+    }
+
+    /// A missing directory must map to `DirectoryNotFound`, not generic `Io`.
+    ///
+    /// The status walk keys on this variant to decide "directory removed,
+    /// report its entries as Removed"; if it regressed to `Io(NotFound)`, a
+    /// child vanishing mid-listing would be indistinguishable and an intact
+    /// directory could be misreported as empty.
+    #[test]
+    fn test_missing_directory_returns_directory_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let missing = temp_dir.path().join("gone");
+
+        let result = list_directory(&missing);
+
+        assert!(
+            matches!(result, Err(DirListError::DirectoryNotFound(ref p)) if p == &missing),
+            "expected DirectoryNotFound, got {:?}",
+            result
+        );
     }
 
     #[test]

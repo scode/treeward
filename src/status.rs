@@ -390,9 +390,13 @@ fn walk_directory(
     let ward_file = WardFile::load_if_exists(&ward_path)?;
     let ward_entries = ward_file.map(|wf| wf.entries).unwrap_or_default();
 
+    // A directory that itself disappeared is treated as having no children,
+    // so its recorded entries are reported as Removed. Per-entry failures
+    // inside an existing directory (including a child vanishing mid-listing)
+    // are fatal and propagate.
     let fs_entries = match list_directory(current_dir) {
         Ok(entries) => entries,
-        Err(DirListError::Io(e)) if e.kind() == ErrorKind::NotFound => BTreeMap::new(),
+        Err(DirListError::DirectoryNotFound(_)) => BTreeMap::new(),
         Err(e) => return Err(StatusError::DirList(e)),
     };
 
