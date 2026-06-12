@@ -245,6 +245,106 @@ fn test_unchanged_not_in_fingerprint() {
     assert_eq!(result_interesting.fingerprint, result_all.fingerprint);
 }
 
+/// A Removed entry must bind the fingerprint to the prior ward state, not just
+/// path + "R".
+///
+/// `FingerprintPayload::Removed` exists so ward-state drift between status and
+/// update cannot hide behind an unchanged-looking `R` entry: if the recorded
+/// ward data for the removed path changes, the fingerprint must change too,
+/// even though path and status class are identical.
+#[test]
+fn test_removed_fingerprint_bound_to_prior_ward_state() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+
+    let fingerprint_for_recorded_sha = |sha: &str| {
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "removed.txt".to_string(),
+            WardEntry::File {
+                sha256: sha.to_string(),
+                mtime_nanos: 1000,
+                size: 5,
+            },
+        );
+        create_ward_file(root, entries);
+
+        let result = compute_status(
+            root,
+            ChecksumPolicy::Never,
+            StatusMode::Interesting,
+            StatusPurpose::Display,
+            DiffMode::None,
+        )
+        .unwrap();
+
+        assert_eq!(result.statuses.len(), 1);
+        assert_eq!(result.statuses[0].status_type(), StatusType::Removed);
+        assert_eq!(result.statuses[0].path(), "removed.txt");
+        result.fingerprint
+    };
+
+    let fingerprint1 = fingerprint_for_recorded_sha("aaa");
+    let fingerprint2 = fingerprint_for_recorded_sha("bbb");
+
+    assert_ne!(
+        fingerprint1, fingerprint2,
+        "fingerprint must reflect the removed entry's prior ward state"
+    );
+}
+
+#[test]
+fn test_mtime_to_nanos_rejects_pre_epoch() {
+    let pre_epoch = UNIX_EPOCH - std::time::Duration::from_secs(1);
+    let err = mtime_to_nanos(&pre_epoch).unwrap_err();
+    assert!(
+        err.to_string().contains("before UNIX epoch"),
+        "unexpected error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_mtime_to_nanos_rejects_u64_overflow() {
+    // Just past u64::MAX nanoseconds (~year 2554), but still well within what
+    // SystemTime can represent on all supported platforms.
+    let far_future = UNIX_EPOCH + std::time::Duration::from_secs(18_446_744_074);
+    let err = mtime_to_nanos(&far_future).unwrap_err();
+    assert!(
+        err.to_string().contains("overflow"),
+        "unexpected error: {}",
+        err
+    );
+}
+
+/// A real file with a pre-epoch mtime must surface the conversion error through
+/// `compute_status` rather than being silently skipped or misreported.
+#[test]
+fn test_status_errors_on_pre_epoch_mtime() {
+    use filetime::{FileTime, set_file_mtime};
+
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+
+    create_ward_file(root, BTreeMap::new());
+    fs::write(root.join("old.txt"), "content").unwrap();
+    set_file_mtime(root.join("old.txt"), FileTime::from_unix_time(-1, 0)).unwrap();
+
+    let err = compute_status(
+        root,
+        ChecksumPolicy::Never,
+        StatusMode::Interesting,
+        StatusPurpose::Display,
+        DiffMode::None,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("before UNIX epoch"),
+        "unexpected error: {}",
+        err
+    );
+}
+
 /// WARNING: This test verifies that non-UTF-8 paths are rejected rather than
 /// silently converted. Do not change this behavior without extreme care!
 ///
