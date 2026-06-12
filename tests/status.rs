@@ -2,6 +2,7 @@ mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use common::{status_output, treeward_cmd};
+use filetime::{FileTime, set_file_mtime};
 use predicates::prelude::*;
 use std::fs;
 use tempfile::TempDir;
@@ -151,6 +152,46 @@ fn status_escapes_control_characters_in_file_names() {
         .failure()
         .stdout(predicate::str::contains(r"A  evil\u{1b}]0;pwned\u{7}.txt"))
         .stdout(predicate::str::contains("\x1b").not());
+}
+
+/// The distinguishing behavior of --always-verify is catching content changes
+/// when metadata is unchanged. The same-size write plus mtime restore makes the
+/// file invisible to both the default policy and --verify (which only checksums
+/// on metadata mismatch), so only Always-policy wiring can report it.
+#[test]
+fn status_always_verify_detects_content_change_with_unchanged_metadata() {
+    let temp = TempDir::new().unwrap();
+    let file_path = temp.path().join("file.txt");
+    fs::write(&file_path, "hello").unwrap();
+
+    treeward_cmd(temp.path()).arg("init").assert().success();
+
+    let original_mtime =
+        FileTime::from_system_time(fs::metadata(&file_path).unwrap().modified().unwrap());
+    fs::write(&file_path, "olleh").unwrap();
+    set_file_mtime(&file_path, original_mtime).unwrap();
+
+    // Both weaker policies must see a clean tree; this is what makes the
+    // --always-verify assertion below meaningful.
+    treeward_cmd(temp.path())
+        .arg("status")
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+    treeward_cmd(temp.path())
+        .arg("status")
+        .arg("--verify")
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    treeward_cmd(temp.path())
+        .arg("status")
+        .arg("--always-verify")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("M  file.txt"))
+        .stderr(predicate::str::is_empty());
 }
 
 #[test]
@@ -466,9 +507,9 @@ fn status_diff_all_no_details_for_unchanged() {
         let next_line = lines[unchanged_idx + 1];
         // Next line should be another status entry or empty/Fingerprint, not indented diff
         assert!(
-            !next_line.starts_with("   ")
-                || next_line.contains("size:") && !lines[unchanged_idx].contains("unchanged"),
-            "Unchanged file should not have diff details"
+            !next_line.starts_with("   "),
+            "Unchanged file should not have diff details, but found: {}",
+            next_line
         );
     }
 }

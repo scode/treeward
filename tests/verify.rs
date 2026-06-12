@@ -1,4 +1,5 @@
 use assert_cmd::cargo::cargo_bin_cmd;
+use filetime::{FileTime, set_file_mtime};
 use predicates::prelude::*;
 use std::fs;
 use tempfile::TempDir;
@@ -62,6 +63,49 @@ fn verify_fails_on_modified_file() {
         .success();
 
     fs::write(&file_path, "changed").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("verify")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("M  file.txt"))
+        .stderr(predicate::str::contains("Verification failed"));
+}
+
+/// The distinguishing behavior of `verify` is catching content changes when
+/// metadata is unchanged — anything weaker than ChecksumPolicy::Always in the
+/// CLI wiring would pass every metadata-changing test while silently losing
+/// this guarantee. The same-size write plus mtime restore makes the file look
+/// untouched to metadata-only comparison.
+#[test]
+fn verify_detects_content_change_with_unchanged_metadata() {
+    let temp = TempDir::new().unwrap();
+    let file_path = temp.path().join("file.txt");
+    fs::write(&file_path, "hello").unwrap();
+
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("init")
+        .assert()
+        .success();
+
+    let original_mtime =
+        FileTime::from_system_time(fs::metadata(&file_path).unwrap().modified().unwrap());
+    fs::write(&file_path, "olleh").unwrap();
+    set_file_mtime(&file_path, original_mtime).unwrap();
+
+    // Sanity-check the premise: metadata-only status must see a clean tree,
+    // otherwise this test is not exercising the checksum path at all.
+    cargo_bin_cmd!("treeward")
+        .arg("-C")
+        .arg(temp.path())
+        .arg("status")
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
 
     cargo_bin_cmd!("treeward")
         .arg("-C")

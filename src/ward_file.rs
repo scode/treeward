@@ -860,6 +860,7 @@ unknown_field = "should_be_rejected"
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_save_permission_denied() {
         use std::os::unix::fs::PermissionsExt;
         use tempfile::TempDir;
