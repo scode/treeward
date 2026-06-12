@@ -21,3 +21,6 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
 - A child entry that vanishes between listing a directory and inspecting it is a fatal error (concurrent modification);
   it is never silently treated as removed. This includes a directory that disappears between being listed and being
   walked. A directory that was already absent when its parent was listed is reported as removed by its parent.
+
+- A `.treeward` file whose `sha256` fields are not exactly 64 lowercase hex characters is rejected as corrupt with a
+  fatal error at load time.

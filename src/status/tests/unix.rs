@@ -47,7 +47,7 @@ fn test_symlink_target_changed() {
     entries.insert(
         "target1.txt".to_string(),
         WardEntry::File {
-            sha256: "abc".to_string(),
+            sha256: "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca".to_string(),
             mtime_nanos: 1000,
             size: 7,
         },
@@ -55,7 +55,7 @@ fn test_symlink_target_changed() {
     entries.insert(
         "target2.txt".to_string(),
         WardEntry::File {
-            sha256: "abc".to_string(),
+            sha256: "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca".to_string(),
             mtime_nanos: 1000,
             size: 7,
         },
@@ -89,7 +89,7 @@ fn test_type_change() {
     entries.insert(
         "item".to_string(),
         WardEntry::File {
-            sha256: "abc123".to_string(),
+            sha256: "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1".to_string(),
             mtime_nanos: 1000,
             size: 100,
         },
@@ -97,7 +97,7 @@ fn test_type_change() {
     entries.insert(
         "target.txt".to_string(),
         WardEntry::File {
-            sha256: "abc".to_string(),
+            sha256: "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca".to_string(),
             mtime_nanos: 1000,
             size: 7,
         },

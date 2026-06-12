@@ -39,7 +39,7 @@ fn test_display_purpose_without_diff_ward_entry_is_none() {
     entries.insert(
         "modified.txt".to_string(),
         WardEntry::File {
-            sha256: "old_checksum".to_string(),
+            sha256: "01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d0".to_string(),
             mtime_nanos: 1000,
             size: 8,
         },
@@ -47,7 +47,7 @@ fn test_display_purpose_without_diff_ward_entry_is_none() {
     entries.insert(
         "removed.txt".to_string(),
         WardEntry::File {
-            sha256: "abc".to_string(),
+            sha256: "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca".to_string(),
             mtime_nanos: 1000,
             size: 100,
         },
@@ -115,7 +115,7 @@ fn test_ward_update_purpose_ward_entry_is_some() {
     entries.insert(
         "modified.txt".to_string(),
         WardEntry::File {
-            sha256: "old_checksum".to_string(),
+            sha256: "01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d01d0".to_string(),
             mtime_nanos: 1000,
             size: 8,
         },
@@ -123,7 +123,7 @@ fn test_ward_update_purpose_ward_entry_is_some() {
     entries.insert(
         "removed.txt".to_string(),
         WardEntry::File {
-            sha256: "abc".to_string(),
+            sha256: "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca".to_string(),
             mtime_nanos: 1000,
             size: 100,
         },
@@ -214,7 +214,7 @@ fn test_ward_update_checksum_reuse_when_metadata_unchanged() {
 
     // Use a fake checksum that differs from the real one. If checksum reuse
     // works, we'll get this fake one back. If not, we'd get the real checksum.
-    let fake_checksum = "fake_checksum_proving_reuse_works".to_string();
+    let fake_checksum = "fa4e".repeat(16);
 
     let mut entries = BTreeMap::new();
     entries.insert(
@@ -282,7 +282,7 @@ fn test_checksum_policy_always_forces_checksum_even_when_metadata_matches() {
     entries.insert(
         "file.txt".to_string(),
         WardEntry::File {
-            sha256: "wrong_checksum_simulating_corruption".to_string(),
+            sha256: "c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de".to_string(),
             mtime_nanos,
             size: metadata.len(),
         },
@@ -408,7 +408,7 @@ fn test_checksum_policy_never_with_ward_update_content_also_differs() {
     entries.insert(
         "file.txt".to_string(),
         WardEntry::File {
-            sha256: "old_checksum_that_doesnt_match".to_string(),
+            sha256: "deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead".to_string(),
             mtime_nanos: 1000,
             size: 50,
         },

@@ -49,7 +49,7 @@ fn test_checksum_policy_when_possibly_modified_metadata_differs() {
     entries.insert(
         "file1.txt".to_string(),
         WardEntry::File {
-            sha256: "wrong_checksum".to_string(),
+            sha256: "baadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaad".to_string(),
             mtime_nanos: 1000,
             size: 16,
         },
@@ -124,7 +124,7 @@ fn test_checksum_policy_always_with_corruption() {
     entries.insert(
         "file1.txt".to_string(),
         WardEntry::File {
-            sha256: "wrong_checksum_simulating_corruption".to_string(),
+            sha256: "c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de".to_string(),
             mtime_nanos,
             size: metadata.len(),
         },
@@ -159,7 +159,7 @@ fn test_diff_capture_on_checksum_only_difference() {
     let actual_checksum = checksum_file(&root.join("file1.txt")).unwrap();
 
     let recorded_entry = WardEntry::File {
-        sha256: "wrong_checksum_simulating_corruption".to_string(),
+        sha256: "c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de".to_string(),
         mtime_nanos: mtime_to_nanos(&actual_checksum.mtime).unwrap(),
         size: actual_checksum.size,
     };
