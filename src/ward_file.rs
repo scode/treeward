@@ -3,7 +3,8 @@
 //! This module defines the versioned TOML format that stores per-directory ward
 //! state. Parsing checks file version and schema fields.
 //!
-//! Saving writes through a temp file, fsync, and rename sequence.
+//! Saving writes through a temp file, fsync, and rename sequence, followed on
+//! Unix by a parent-directory fsync so the rename itself is durable.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -168,9 +169,10 @@ impl WardFile {
 
     /// Save a WardFile to the filesystem atomically.
     ///
-    /// Writes to a temporary file, fsyncs it, then atomically renames it into
-    /// place. The resulting file gets standard umask-derived permissions, like
-    /// any normally created file.
+    /// Writes to a temporary file, fsyncs it, atomically renames it into
+    /// place, then (on Unix) fsyncs the parent directory so the rename is
+    /// durable. The resulting file gets standard umask-derived permissions,
+    /// like any normally created file.
     pub fn save(&self, path: &Path) -> Result<(), WardFileError> {
         use std::io::Write;
 
@@ -220,8 +222,46 @@ impl WardFile {
             }
         })?;
 
+        sync_dir(parent)?;
+
         Ok(())
     }
+}
+
+/// Fsync a directory so a preceding rename into it is durable.
+///
+/// `persist` makes the new file's *contents* durable (the temp file was
+/// fsynced), but the rename lives in the directory entry; without flushing the
+/// directory, a crash shortly after a successful save can roll the path back
+/// to the old `.treeward` or none at all. Unacceptable for an integrity tool
+/// that just told the user their state was recorded.
+///
+/// Unix only: std exposes no way to fsync a directory handle on Windows, so
+/// rename durability is not guaranteed there.
+#[cfg(unix)]
+fn sync_dir(dir: &Path) -> Result<(), WardFileError> {
+    let dir_file = std::fs::File::open(dir).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            WardFileError::PermissionDenied(dir.to_path_buf())
+        } else {
+            WardFileError::Io(e)
+        }
+    })?;
+    dir_file.sync_all().or_else(|e| {
+        // Some filesystems (FUSE, network mounts) cannot fsync a directory and
+        // report ENOTSUP/EINVAL/ENOSYS. Failing the whole save would make
+        // treeward unusable there even though the rename succeeded, so accept
+        // the filesystem's best as our best. Real I/O errors still propagate.
+        match e.raw_os_error() {
+            Some(libc::ENOTSUP) | Some(libc::EINVAL) | Some(libc::ENOSYS) => Ok(()),
+            _ => Err(WardFileError::Io(e)),
+        }
+    })
+}
+
+#[cfg(not(unix))]
+fn sync_dir(_dir: &Path) -> Result<(), WardFileError> {
+    Ok(())
 }
 
 fn is_valid_entry_name(name: &str) -> bool {
