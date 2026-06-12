@@ -280,6 +280,20 @@ enum FingerprintPayload {
     Removed { ward_entry: WardEntry },
 }
 
+/// Walk-invariant parameters for the recursive status traversal.
+///
+/// Bundles the canonicalized tree root with the knobs that stay fixed for the
+/// duration of a walk, so the recursion passes one context instead of
+/// repeating the same argument list at every level.
+#[derive(Debug, Clone, Copy)]
+struct WalkContext<'a> {
+    tree_root: &'a Path,
+    policy: ChecksumPolicy,
+    mode: StatusMode,
+    purpose: StatusPurpose,
+    diff_mode: DiffMode,
+}
+
 /// Compare filesystem state against ward files to detect changes.
 ///
 /// Recursively walks the directory tree starting from `root`, comparing the
@@ -339,16 +353,14 @@ pub fn compute_status(
     let mut statuses = Vec::new();
     let mut fingerprint_records = Vec::new();
 
-    walk_directory(
-        &root,
-        &root,
-        &mut statuses,
-        &mut fingerprint_records,
+    let ctx = WalkContext {
+        tree_root: &root,
         policy,
         mode,
         purpose,
         diff_mode,
-    )?;
+    };
+    walk_directory(ctx, &root, &mut statuses, &mut fingerprint_records)?;
 
     statuses.sort_by(|a, b| a.path().cmp(b.path()));
     // Keep fingerprint deterministic even if traversal order changes in the future.
@@ -366,16 +378,11 @@ pub fn compute_status(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 fn walk_directory(
-    tree_root: &Path,
+    ctx: WalkContext<'_>,
     current_dir: &Path,
     statuses: &mut Vec<StatusEntry>,
     fingerprint_records: &mut Vec<FingerprintRecord>,
-    policy: ChecksumPolicy,
-    mode: StatusMode,
-    purpose: StatusPurpose,
-    diff_mode: DiffMode,
 ) -> Result<(), StatusError> {
     info!("Entering directory {}", current_dir.display());
 
@@ -390,47 +397,25 @@ fn walk_directory(
     };
 
     compare_entries(
-        tree_root,
+        ctx,
         current_dir,
         &ward_entries,
         &fs_entries,
         statuses,
         fingerprint_records,
-        policy,
-        mode,
-        purpose,
-        diff_mode,
     )?;
 
     for (name, entry) in &fs_entries {
         if matches!(entry, FsEntry::Dir { .. }) {
             let child_path = current_dir.join(name);
-            walk_directory(
-                tree_root,
-                &child_path,
-                statuses,
-                fingerprint_records,
-                policy,
-                mode,
-                purpose,
-                diff_mode,
-            )?;
+            walk_directory(ctx, &child_path, statuses, fingerprint_records)?;
         }
     }
 
     for (name, entry) in &ward_entries {
         if matches!(entry, WardEntry::Dir {}) && !fs_entries.contains_key(name) {
             let child_path = current_dir.join(name);
-            walk_directory(
-                tree_root,
-                &child_path,
-                statuses,
-                fingerprint_records,
-                policy,
-                mode,
-                purpose,
-                diff_mode,
-            )?;
+            walk_directory(ctx, &child_path, statuses, fingerprint_records)?;
         }
     }
 
@@ -470,24 +455,19 @@ fn build_ward_entry_from_fs(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn compare_entries(
-    tree_root: &Path,
+    ctx: WalkContext<'_>,
     current_dir: &Path,
     ward_entries: &BTreeMap<String, WardEntry>,
     fs_entries: &BTreeMap<String, FsEntry>,
     statuses: &mut Vec<StatusEntry>,
     fingerprint_records: &mut Vec<FingerprintRecord>,
-    policy: ChecksumPolicy,
-    mode: StatusMode,
-    purpose: StatusPurpose,
-    diff_mode: DiffMode,
 ) -> Result<(), StatusError> {
     for (name, fs_entry) in fs_entries {
         if !ward_entries.contains_key(name) {
-            let relative_path = make_relative_path(tree_root, current_dir, name)?;
+            let relative_path = make_relative_path(ctx.tree_root, current_dir, name)?;
 
-            let ward_entry = if purpose == StatusPurpose::WardUpdate {
+            let ward_entry = if ctx.purpose == StatusPurpose::WardUpdate {
                 Some(build_ward_entry_from_fs(current_dir, name, fs_entry)?)
             } else {
                 None
@@ -497,7 +477,7 @@ fn compare_entries(
                 name,
                 fs_entry,
                 ward_entry.as_ref(),
-                policy,
+                ctx.policy,
             )?;
 
             statuses.push(StatusEntry::Added {
@@ -514,8 +494,8 @@ fn compare_entries(
 
     for (name, removed_ward_entry) in ward_entries {
         if !fs_entries.contains_key(name) {
-            let relative_path = make_relative_path(tree_root, current_dir, name)?;
-            let old_ward_entry = if diff_mode == DiffMode::Capture {
+            let relative_path = make_relative_path(ctx.tree_root, current_dir, name)?;
+            let old_ward_entry = if ctx.diff_mode == DiffMode::Capture {
                 Some(removed_ward_entry.clone())
             } else {
                 None
@@ -537,17 +517,13 @@ fn compare_entries(
     for (name, ward_entry) in ward_entries {
         if let Some(fs_entry) = fs_entries.get(name) {
             check_modification(
-                tree_root,
+                ctx,
                 current_dir,
                 name,
                 ward_entry,
                 fs_entry,
                 statuses,
                 fingerprint_records,
-                policy,
-                mode,
-                purpose,
-                diff_mode,
             )?;
         }
     }
@@ -566,21 +542,16 @@ fn compare_entries(
 /// Type changes (e.g., file becoming symlink) are always reported as Modified.
 ///
 /// Appends the resulting `StatusEntry` to `statuses` based on `mode` and `purpose`.
-#[allow(clippy::too_many_arguments)]
 fn check_modification(
-    tree_root: &Path,
+    ctx: WalkContext<'_>,
     current_dir: &Path,
     name: &str,
     ward_entry: &WardEntry,
     fs_entry: &FsEntry,
     statuses: &mut Vec<StatusEntry>,
     fingerprint_records: &mut Vec<FingerprintRecord>,
-    policy: ChecksumPolicy,
-    mode: StatusMode,
-    purpose: StatusPurpose,
-    diff_mode: DiffMode,
 ) -> Result<(), StatusError> {
-    let relative_path = make_relative_path(tree_root, current_dir, name)?;
+    let relative_path = make_relative_path(ctx.tree_root, current_dir, name)?;
     let absolute_path = current_dir.join(name);
 
     match (ward_entry, fs_entry) {
@@ -598,13 +569,14 @@ fn check_modification(
             let fs_mtime_nanos = mtime_to_nanos(fs_mtime)?;
             let metadata_differs = fs_mtime_nanos != *ward_mtime_nanos || fs_size != ward_size;
 
-            let need_checksum_for_status = match policy {
+            let need_checksum_for_status = match ctx.policy {
                 ChecksumPolicy::Never => false,
                 ChecksumPolicy::WhenPossiblyModified => metadata_differs,
                 ChecksumPolicy::Always => true,
             };
-            let need_checksum_for_ward = purpose == StatusPurpose::WardUpdate && metadata_differs;
-            let need_checksum_for_diff = diff_mode == DiffMode::Capture && metadata_differs;
+            let need_checksum_for_ward =
+                ctx.purpose == StatusPurpose::WardUpdate && metadata_differs;
+            let need_checksum_for_diff = ctx.diff_mode == DiffMode::Capture && metadata_differs;
             let need_checksum =
                 need_checksum_for_status || need_checksum_for_ward || need_checksum_for_diff;
 
@@ -616,7 +588,7 @@ fn check_modification(
             };
 
             let new_ward_entry =
-                if purpose == StatusPurpose::WardUpdate || diff_mode == DiffMode::Capture {
+                if ctx.purpose == StatusPurpose::WardUpdate || ctx.diff_mode == DiffMode::Capture {
                     Some(match &new_checksum {
                         Some(c) => WardEntry::File {
                             sha256: c.sha256.clone(),
@@ -636,7 +608,7 @@ fn check_modification(
             // Capture old_ward_entry when diff mode is enabled and the entry differs
             // (either metadata or checksum - for --always-verify detecting silent corruption)
             let old_ward_entry =
-                if diff_mode == DiffMode::Capture && (metadata_differs || sha256_differs) {
+                if ctx.diff_mode == DiffMode::Capture && (metadata_differs || sha256_differs) {
                     Some(ward_entry.clone())
                 } else {
                     None
@@ -682,7 +654,7 @@ fn check_modification(
                     status_type: StatusType::Modified,
                     payload: fingerprint_payload,
                 });
-            } else if mode == StatusMode::All || purpose == StatusPurpose::WardUpdate {
+            } else if ctx.mode == StatusMode::All || ctx.purpose == StatusPurpose::WardUpdate {
                 statuses.push(StatusEntry::Unchanged {
                     path: relative_path,
                     ward_entry: new_ward_entry,
@@ -690,8 +662,8 @@ fn check_modification(
             }
         }
         (WardEntry::Dir {}, FsEntry::Dir { .. }) => {
-            if mode == StatusMode::All || purpose == StatusPurpose::WardUpdate {
-                let new_ward_entry = if purpose == StatusPurpose::WardUpdate {
+            if ctx.mode == StatusMode::All || ctx.purpose == StatusPurpose::WardUpdate {
+                let new_ward_entry = if ctx.purpose == StatusPurpose::WardUpdate {
                     Some(WardEntry::Dir {})
                 } else {
                     None
@@ -711,7 +683,7 @@ fn check_modification(
             },
         ) => {
             let new_ward_entry =
-                if purpose == StatusPurpose::WardUpdate || diff_mode == DiffMode::Capture {
+                if ctx.purpose == StatusPurpose::WardUpdate || ctx.diff_mode == DiffMode::Capture {
                     Some(WardEntry::Symlink {
                         symlink_target: fs_target.clone(),
                     })
@@ -720,7 +692,7 @@ fn check_modification(
                 };
 
             if ward_target != fs_target {
-                let old_ward_entry = if diff_mode == DiffMode::Capture {
+                let old_ward_entry = if ctx.diff_mode == DiffMode::Capture {
                     Some(ward_entry.clone())
                 } else {
                     None
@@ -737,7 +709,7 @@ fn check_modification(
                         symlink_target: fs_target.clone(),
                     },
                 });
-            } else if mode == StatusMode::All || purpose == StatusPurpose::WardUpdate {
+            } else if ctx.mode == StatusMode::All || ctx.purpose == StatusPurpose::WardUpdate {
                 statuses.push(StatusEntry::Unchanged {
                     path: relative_path,
                     ward_entry: new_ward_entry,
@@ -747,12 +719,12 @@ fn check_modification(
         _ => {
             // Type change (e.g., file -> symlink)
             let new_ward_entry =
-                if purpose == StatusPurpose::WardUpdate || diff_mode == DiffMode::Capture {
+                if ctx.purpose == StatusPurpose::WardUpdate || ctx.diff_mode == DiffMode::Capture {
                     Some(build_ward_entry_from_fs(current_dir, name, fs_entry)?)
                 } else {
                     None
                 };
-            let old_ward_entry = if diff_mode == DiffMode::Capture {
+            let old_ward_entry = if ctx.diff_mode == DiffMode::Capture {
                 Some(ward_entry.clone())
             } else {
                 None
@@ -762,7 +734,7 @@ fn check_modification(
                 name,
                 fs_entry,
                 new_ward_entry.as_ref(),
-                policy,
+                ctx.policy,
             )?;
             statuses.push(StatusEntry::Modified {
                 path: relative_path.clone(),

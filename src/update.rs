@@ -10,9 +10,7 @@ use crate::status::{
     ChecksumPolicy, DiffMode, StatusEntry, StatusError, StatusMode, StatusPurpose,
     build_ward_files, compute_status,
 };
-#[cfg(test)]
-use crate::ward_file::WardEntry;
-use crate::ward_file::{WardFile, WardFileError};
+use crate::ward_file::{WardEntry, WardFile, WardFileError};
 use std::path::{Path, PathBuf, StripPrefixError};
 
 #[derive(Debug, thiserror::Error)]
@@ -172,7 +170,7 @@ pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, W
             StatusEntry::Added { ward_entry, .. }
             | StatusEntry::Modified { ward_entry, .. }
             | StatusEntry::PossiblyModified { ward_entry, .. } => {
-                matches!(ward_entry, Some(crate::ward_file::WardEntry::File { .. }))
+                matches!(ward_entry, Some(WardEntry::File { .. }))
             }
             _ => false,
         })

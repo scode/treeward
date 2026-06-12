@@ -123,7 +123,7 @@ pub enum Command {
 
     /// Verify consistency of the ward, exit with success if no inconsistency.
     #[command(long_about = help_text::VERIFY_LONG_ABOUT)]
-    Verify {},
+    Verify,
 }
 
 impl Cli {
