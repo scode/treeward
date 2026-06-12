@@ -132,6 +132,27 @@ fn status_always_verify_reports_modified_files() {
         .stderr(predicate::str::is_empty());
 }
 
+/// SPEC: the status listing must escape control characters in scanned file
+/// names. This exercises the real CLI wiring end to end; the escaping itself
+/// is unit-tested in src/diffing.rs.
+#[test]
+#[cfg(unix)]
+fn status_escapes_control_characters_in_file_names() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+
+    treeward_cmd(temp.path()).arg("init").assert().success();
+
+    fs::write(temp.path().join("evil\x1b]0;pwned\x07.txt"), "x").unwrap();
+
+    treeward_cmd(temp.path())
+        .arg("status")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains(r"A  evil\u{1b}]0;pwned\u{7}.txt"))
+        .stdout(predicate::str::contains("\x1b").not());
+}
+
 #[test]
 fn status_with_c_flag_changes_directory() {
     let temp = TempDir::new().unwrap();

@@ -3,8 +3,45 @@
 //! Formats `status::StatusEntry` values for terminal output and optional
 //! field-level diffs.
 
+use std::borrow::Cow;
+use std::path::Path;
+
 use crate::status;
 use crate::ward_file::WardEntry;
+
+/// Escape control characters so a crafted file name cannot inject terminal
+/// escape sequences (OSC/CSI) into status output — e.g. retitling the
+/// terminal or writing to the clipboard via OSC 52. Comparable tools (ls,
+/// git) quote control characters for the same reason.
+///
+/// Control characters (including C1, so the single-byte 0x9B CSI is covered)
+/// are rendered with Rust's debug escapes (`\n`, `\u{1b}`, ...). Literal
+/// backslashes are doubled so escaped output stays unambiguous: a name
+/// containing the literal text `\u{1b}` cannot be confused with an escaped
+/// real ESC. All other Unicode passes through unchanged.
+fn escape_control(s: &str) -> Cow<'_, str> {
+    if !s.chars().any(|c| c.is_control() || c == '\\') {
+        return Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c == '\\' {
+            out.push_str("\\\\");
+        } else if c.is_control() {
+            out.extend(c.escape_debug());
+        } else {
+            out.push(c);
+        }
+    }
+    Cow::Owned(out)
+}
+
+/// Format a symlink target for display, escaping control characters.
+/// Non-UTF-8 bytes are replaced lossily; exact-byte fidelity does not
+/// matter here because this output is presentation-only.
+fn format_target(target: &Path) -> String {
+    escape_control(&target.to_string_lossy()).into_owned()
+}
 
 pub fn print_statuses(statuses: &[status::StatusEntry], show_diff: bool) {
     for entry in statuses {
@@ -16,7 +53,7 @@ pub fn print_statuses(statuses: &[status::StatusEntry], show_diff: bool) {
             status::StatusType::Unchanged => ".",
         };
 
-        println!("{:<2} {}", status_code, entry.path());
+        println!("{:<2} {}", status_code, escape_control(entry.path()));
 
         if show_diff {
             print_diff(entry);
@@ -75,7 +112,7 @@ fn format_was_entry_verbose(entry: &WardEntry) -> String {
         }
         WardEntry::Dir {} => "   was: directory".to_string(),
         WardEntry::Symlink { symlink_target } => {
-            format!("   was: symlink -> {}", symlink_target.display())
+            format!("   was: symlink -> {}", format_target(symlink_target))
         }
     }
 }
@@ -139,8 +176,8 @@ fn format_entry_diff(old: &WardEntry, new: &WardEntry) -> Vec<String> {
             if old_target != new_target {
                 lines.push(format!(
                     "   target: {} -> {}",
-                    old_target.display(),
-                    new_target.display()
+                    format_target(old_target),
+                    format_target(new_target)
                 ));
             }
         }
@@ -164,7 +201,7 @@ fn format_entry_type(entry: &WardEntry) -> String {
         }
         WardEntry::Dir {} => "directory".to_string(),
         WardEntry::Symlink { symlink_target } => {
-            format!("symlink -> {}", symlink_target.display())
+            format!("symlink -> {}", format_target(symlink_target))
         }
     }
 }
@@ -195,11 +232,19 @@ fn format_mtime(nanos: u64) -> String {
     datetime.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
 }
 
+/// Abbreviate a recorded checksum for display.
+///
+/// The sha256 string comes from a `.treeward` file, which is untrusted input:
+/// it is truncated on char boundaries (a hostile multi-byte string must not
+/// panic the formatter) and escaped like file names (a crafted "checksum" must
+/// not inject terminal escape sequences).
 fn truncate_sha256(sha256: &str) -> String {
-    if sha256.len() > 12 {
-        format!("{}...", &sha256[..12])
+    let mut chars = sha256.chars();
+    let prefix: String = chars.by_ref().take(12).collect();
+    if chars.next().is_some() {
+        format!("{}...", escape_control(&prefix))
     } else {
-        sha256.to_string()
+        escape_control(&prefix).into_owned()
     }
 }
 
@@ -436,6 +481,64 @@ mod tests {
         assert_eq!(
             format_diff(&entry),
             "   target: /old/target -> /new/target\n"
+        );
+    }
+
+    #[test]
+    fn escape_control_passes_plain_names_through() {
+        assert_eq!(escape_control("plain-name.txt"), "plain-name.txt");
+        assert_eq!(escape_control("unicode-ñ-名前.txt"), "unicode-ñ-名前.txt");
+    }
+
+    #[test]
+    fn escape_control_neutralizes_escape_sequences() {
+        // An OSC sequence that would retitle the terminal if printed raw.
+        assert_eq!(
+            escape_control("\x1b]0;pwned\x07.txt"),
+            "\\u{1b}]0;pwned\\u{7}.txt"
+        );
+        // C1 single-byte CSI (U+009B) must be caught too.
+        assert_eq!(escape_control("a\u{9b}31mb"), "a\\u{9b}31mb");
+        assert_eq!(escape_control("line\nbreak"), "line\\nbreak");
+    }
+
+    #[test]
+    fn escape_control_doubles_literal_backslashes() {
+        assert_eq!(escape_control(r"back\slash"), r"back\\slash");
+        // A name containing the literal text "\u{1b}" must stay
+        // distinguishable from a real escaped ESC.
+        assert_eq!(escape_control("fake\\u{1b}.txt"), "fake\\\\u{1b}.txt");
+    }
+
+    #[test]
+    fn truncate_sha256_handles_hostile_strings() {
+        // Multi-byte char straddling the truncation point must not panic.
+        assert_eq!(
+            truncate_sha256("aaaaaaaaaaa\u{e9}zzz"),
+            "aaaaaaaaaaa\u{e9}..."
+        );
+        // Control characters from a crafted ward file are escaped.
+        assert_eq!(truncate_sha256("\u{1b}]0;x\u{7}"), "\\u{1b}]0;x\\u{7}");
+    }
+
+    #[test]
+    fn diff_symlink_target_with_control_characters_is_escaped() {
+        let old = WardEntry::Symlink {
+            symlink_target: PathBuf::from("/old/target"),
+        };
+        let new = WardEntry::Symlink {
+            symlink_target: PathBuf::from("/new/\x1b[2Jtarget"),
+        };
+
+        let entry = status::StatusEntry::Modified {
+            path: "link".into(),
+            ward_entry: Some(new),
+            old_ward_entry: Some(old),
+        };
+
+        assert_eq!(
+            format_diff(&entry),
+            "   target: /old/target -> /new/\\u{1b}[2Jtarget\n"
         );
     }
 
