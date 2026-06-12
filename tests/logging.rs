@@ -1,4 +1,7 @@
+mod common;
+
 use assert_cmd::cargo::cargo_bin_cmd;
+use common::treeward_cmd;
 use predicates::prelude::*;
 use std::fs;
 use tempfile::TempDir;
@@ -13,10 +16,8 @@ fn temp_dir_with_file() -> TempDir {
 fn init_without_flags_respects_rust_log_info() {
     let temp = temp_dir_with_file();
 
-    cargo_bin_cmd!("treeward")
+    treeward_cmd(temp.path())
         .env("RUST_LOG", "info")
-        .arg("-C")
-        .arg(temp.path())
         .arg("init")
         .assert()
         .success()
@@ -27,10 +28,8 @@ fn init_without_flags_respects_rust_log_info() {
 fn init_without_flags_respects_rust_log_warn() {
     let temp = temp_dir_with_file();
 
-    cargo_bin_cmd!("treeward")
+    treeward_cmd(temp.path())
         .env("RUST_LOG", "warn")
-        .arg("-C")
-        .arg(temp.path())
         .arg("init")
         .assert()
         .success()
@@ -41,11 +40,9 @@ fn init_without_flags_respects_rust_log_warn() {
 fn verbose_overrides_rust_log_warn() {
     let temp = temp_dir_with_file();
 
-    cargo_bin_cmd!("treeward")
+    treeward_cmd(temp.path())
         .env("RUST_LOG", "warn")
         .arg("-v")
-        .arg("-C")
-        .arg(temp.path())
         .arg("init")
         .assert()
         .success()
@@ -56,11 +53,9 @@ fn verbose_overrides_rust_log_warn() {
 fn verbose_debug_overrides_rust_log_warn() {
     let temp = temp_dir_with_file();
 
-    cargo_bin_cmd!("treeward")
+    treeward_cmd(temp.path())
         .env("RUST_LOG", "warn")
         .arg("-vv")
-        .arg("-C")
-        .arg(temp.path())
         .arg("init")
         .assert()
         .success()
@@ -71,12 +66,10 @@ fn verbose_debug_overrides_rust_log_warn() {
 fn log_level_overrides_rust_log_warn() {
     let temp = temp_dir_with_file();
 
-    cargo_bin_cmd!("treeward")
+    treeward_cmd(temp.path())
         .env("RUST_LOG", "warn")
         .arg("--log-level")
         .arg("info")
-        .arg("-C")
-        .arg(temp.path())
         .arg("init")
         .assert()
         .success()
@@ -87,12 +80,10 @@ fn log_level_overrides_rust_log_warn() {
 fn trace_log_level_emits_debug_messages() {
     let temp = temp_dir_with_file();
 
-    cargo_bin_cmd!("treeward")
+    treeward_cmd(temp.path())
         .env("RUST_LOG", "warn")
         .arg("--log-level")
         .arg("trace")
-        .arg("-C")
-        .arg(temp.path())
         .arg("init")
         .assert()
         .success()
@@ -135,11 +126,7 @@ fn status_permission_error_logs_to_stderr_not_stdout() {
     // Remove all permissions so entering the directory fails.
     fs::set_permissions(&protected, fs::Permissions::from_mode(0o000)).unwrap();
 
-    let assert = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("status")
-        .assert();
+    let assert = treeward_cmd(temp.path()).arg("status").assert();
 
     assert
         .failure()
@@ -158,9 +145,7 @@ fn warn_error_emojis_suppressed_when_not_tty() {
     fs::set_permissions(&protected, fs::Permissions::from_mode(0o000)).unwrap();
 
     // capture() makes stdout/stderr non-tty
-    let output = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    let output = treeward_cmd(temp.path())
         .arg("status")
         .assert()
         .failure()
