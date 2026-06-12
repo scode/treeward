@@ -27,3 +27,6 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
 
 - Written `.treeward` files get standard umask-derived permissions (0666 masked by the process umask), like any normally
   created file — not owner-only modes that would break `verify` for other users in group-shared trees.
+
+- Checksumming a path that is no longer a regular file (e.g. swapped for a FIFO or device mid-run) is a fatal error; it
+  never blocks waiting on the object.
