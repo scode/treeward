@@ -1,4 +1,7 @@
+mod common;
+
 use assert_cmd::cargo::cargo_bin_cmd;
+use common::treeward_cmd;
 use predicates::prelude::*;
 use std::fs;
 #[cfg(unix)]
@@ -10,9 +13,7 @@ fn init_creates_ward_files() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("init")
         .assert()
         .success()
@@ -28,10 +29,8 @@ fn init_verbose_shows_warded_count() {
     fs::write(temp.path().join("file1.txt"), "hello").unwrap();
     fs::write(temp.path().join("file2.txt"), "world").unwrap();
 
-    cargo_bin_cmd!("treeward")
+    treeward_cmd(temp.path())
         .arg("-v")
-        .arg("-C")
-        .arg(temp.path())
         .arg("init")
         .assert()
         .success()
@@ -43,9 +42,7 @@ fn init_dry_run_skips_writes() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("init")
         .arg("--dry-run")
         .assert()
@@ -60,16 +57,9 @@ fn init_fails_when_already_initialized() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("init")
         .assert()
         .failure()
@@ -77,6 +67,9 @@ fn init_fails_when_already_initialized() {
         .stderr(predicate::str::contains("treeward update"));
 }
 
+// Intentionally hand-rolled: this test exercises -C with a relative path
+// resolved against the process working directory, which the shared helper
+// (absolute-path -C) cannot express.
 #[test]
 fn init_with_c_flag_changes_directory() {
     let temp = TempDir::new().unwrap();
@@ -109,12 +102,7 @@ fn init_exits_code_255_on_permission_error() {
     perms.set_mode(0o555);
     fs::set_permissions(temp.path(), perms.clone()).unwrap();
 
-    let output = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .output()
-        .unwrap();
+    let output = treeward_cmd(temp.path()).arg("init").output().unwrap();
 
     // Restore permissions for cleanup
     perms.set_mode(0o755);

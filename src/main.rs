@@ -18,7 +18,7 @@ use cli::{Cli, Command, LogLevel};
 use status::ChecksumPolicy;
 use std::fmt as stdfmt;
 use std::io::{IsTerminal, stderr};
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::ExitCode;
 use tracing::{Event, Level, Subscriber, error, info};
 use tracing_subscriber::filter::EnvFilter;
@@ -78,7 +78,7 @@ fn main() -> ExitCode {
         return WardExitCode::any_error();
     }
 
-    let current_dir = PathBuf::from(".");
+    let current_dir = Path::new(".");
 
     let result: anyhow::Result<ExitCode> = match cli.command {
         Command::Update {
@@ -116,7 +116,7 @@ fn main() -> ExitCode {
             all,
             diff,
         } => handle_status(current_dir, verify, always_verify, all, diff),
-        Command::Verify {} => handle_verify(current_dir),
+        Command::Verify => handle_verify(current_dir),
     };
 
     match result {
@@ -129,7 +129,7 @@ fn main() -> ExitCode {
 }
 
 fn handle_init_or_update(
-    path: PathBuf,
+    path: &Path,
     init: bool,
     allow_init: bool,
     fingerprint: Option<String>,
@@ -145,7 +145,7 @@ fn handle_init_or_update(
         checksum_policy: checksum_policy_from_flags(always_verify, verify),
     };
 
-    let result = ward_directory(&path, options)?;
+    let result = ward_directory(path, options)?;
 
     if dry_run {
         info!("DRY RUN - no files were modified");
@@ -164,7 +164,7 @@ fn handle_init_or_update(
 }
 
 fn handle_status(
-    path: PathBuf,
+    path: &Path,
     verify: bool,
     always_verify: bool,
     all: bool,
@@ -186,7 +186,7 @@ fn handle_status(
     };
 
     let result = status::compute_status(
-        &path,
+        path,
         policy,
         mode,
         status::StatusPurpose::Display,
@@ -221,9 +221,9 @@ fn handle_status(
     Ok(WardExitCode::status_unclean())
 }
 
-fn handle_verify(path: PathBuf) -> anyhow::Result<ExitCode> {
+fn handle_verify(path: &Path) -> anyhow::Result<ExitCode> {
     let result = status::compute_status(
-        &path,
+        path,
         ChecksumPolicy::Always,
         status::StatusMode::Interesting,
         status::StatusPurpose::Display,

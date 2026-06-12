@@ -10,7 +10,6 @@
 
 use sha2::{Digest, Sha256};
 use std::fs::File;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
@@ -61,15 +60,7 @@ pub fn checksum_file(path: &Path) -> Result<FileChecksum, ChecksumError> {
     let mtime_before = metadata_before.modified().map_err(ChecksumError::Io)?;
 
     let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 8192];
-
-    loop {
-        let bytes_read = file.read(&mut buffer).map_err(ChecksumError::Io)?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-    }
+    std::io::copy(&mut file, &mut hasher).map_err(ChecksumError::Io)?;
 
     let metadata_after = file.metadata().map_err(ChecksumError::Io)?;
     let mtime_after = metadata_after.modified().map_err(ChecksumError::Io)?;

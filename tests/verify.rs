@@ -1,4 +1,7 @@
+mod common;
+
 use assert_cmd::cargo::cargo_bin_cmd;
+use common::treeward_cmd;
 use filetime::{FileTime, set_file_mtime};
 use predicates::prelude::*;
 use std::fs;
@@ -9,16 +12,9 @@ fn verify_success_when_clean() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("verify")
         .assert()
         .success()
@@ -30,18 +26,11 @@ fn verify_fails_on_added_file() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     fs::write(temp.path().join("new.txt"), "new").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("verify")
         .assert()
         .failure()
@@ -55,18 +44,11 @@ fn verify_fails_on_modified_file() {
     let file_path = temp.path().join("file.txt");
     fs::write(&file_path, "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     fs::write(&file_path, "changed").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("verify")
         .assert()
         .failure()
@@ -85,12 +67,7 @@ fn verify_detects_content_change_with_unchanged_metadata() {
     let file_path = temp.path().join("file.txt");
     fs::write(&file_path, "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     let original_mtime =
         FileTime::from_system_time(fs::metadata(&file_path).unwrap().modified().unwrap());
@@ -99,17 +76,13 @@ fn verify_detects_content_change_with_unchanged_metadata() {
 
     // Sanity-check the premise: metadata-only status must see a clean tree,
     // otherwise this test is not exercising the checksum path at all.
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("status")
         .assert()
         .success()
         .stdout(predicate::str::is_empty());
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
+    treeward_cmd(temp.path())
         .arg("verify")
         .assert()
         .failure()
@@ -117,6 +90,9 @@ fn verify_detects_content_change_with_unchanged_metadata() {
         .stderr(predicate::str::contains("Verification failed"));
 }
 
+// Intentionally hand-rolled: this test exercises -C with a relative path
+// resolved against the process working directory, which the shared helper
+// (absolute-path -C) cannot express.
 #[test]
 fn verify_with_c_flag_changes_directory() {
     let temp = TempDir::new().unwrap();
@@ -124,12 +100,7 @@ fn verify_with_c_flag_changes_directory() {
     fs::create_dir(&subdir).unwrap();
     fs::write(subdir.join("file.txt"), "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(&subdir)
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(&subdir).arg("init").assert().success();
 
     cargo_bin_cmd!("treeward")
         .current_dir(temp.path())
@@ -147,21 +118,11 @@ fn verify_exits_code_1_when_unclean() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("file.txt"), "hello").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     fs::write(temp.path().join("new.txt"), "added file").unwrap();
 
-    let output = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("verify")
-        .output()
-        .unwrap();
+    let output = treeward_cmd(temp.path()).arg("verify").output().unwrap();
 
     assert_eq!(
         output.status.code(),
@@ -187,12 +148,7 @@ fn verify_exits_code_255_on_permission_error() {
     fs::create_dir(temp.path().join("subdir")).unwrap();
     fs::write(temp.path().join("subdir/nested.txt"), "nested").unwrap();
 
-    cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("init")
-        .assert()
-        .success();
+    treeward_cmd(temp.path()).arg("init").assert().success();
 
     // Remove read permission from subdir
     let subdir = temp.path().join("subdir");
@@ -200,12 +156,7 @@ fn verify_exits_code_255_on_permission_error() {
     perms.set_mode(0o000);
     fs::set_permissions(&subdir, perms.clone()).unwrap();
 
-    let output = cargo_bin_cmd!("treeward")
-        .arg("-C")
-        .arg(temp.path())
-        .arg("verify")
-        .output()
-        .unwrap();
+    let output = treeward_cmd(temp.path()).arg("verify").output().unwrap();
 
     // Restore permissions for cleanup
     perms.set_mode(0o755);
