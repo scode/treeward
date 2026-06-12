@@ -89,6 +89,35 @@ fn init_with_c_flag_changes_directory() {
     assert!(!temp.path().join(".treeward").exists());
 }
 
+/// Ward files must get standard umask-derived permissions, not the 0600 of the
+/// temp file they are staged through. Owner-only ward files break `verify` for
+/// other users in group-shared trees.
+///
+/// The umask is set via `sh` in the child process only; the test process's own
+/// umask is never touched (it is global state, raceful across threads).
+#[test]
+#[cfg(unix)]
+fn init_creates_ward_files_with_umask_permissions() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(r#"umask 022 && exec "$0" -C "$1" init"#)
+        .arg(assert_cmd::cargo::cargo_bin!("treeward"))
+        .arg(temp.path())
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let mode = fs::metadata(temp.path().join(".treeward"))
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o644, "expected 0666 masked by umask 022");
+}
+
 /// Verifies that `init` exits with code 255 on errors (e.g., permission denied),
 /// rather than silently succeeding or returning a misleading exit code.
 #[test]

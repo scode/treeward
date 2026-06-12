@@ -168,7 +168,9 @@ impl WardFile {
 
     /// Save a WardFile to the filesystem atomically.
     ///
-    /// Writes to a temporary file, fsyncs it, then atomically renames it into place.
+    /// Writes to a temporary file, fsyncs it, then atomically renames it into
+    /// place. The resulting file gets standard umask-derived permissions, like
+    /// any normally created file.
     pub fn save(&self, path: &Path) -> Result<(), WardFileError> {
         use std::io::Write;
 
@@ -176,7 +178,19 @@ impl WardFile {
 
         let parent = path.parent().unwrap_or(Path::new("."));
 
-        let mut temp_file = tempfile::NamedTempFile::new_in(parent).map_err(|e| {
+        let mut builder = tempfile::Builder::new();
+        // NamedTempFile defaults to mode 0600 (right for secrets, wrong here):
+        // persist() carries that to the final file, so every .treeward would
+        // end up owner-only and other users in a group-shared tree would hit
+        // PermissionDenied on verify. Ask for 0666 so the kernel applies the
+        // process umask, matching what File::create would produce.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o666));
+        }
+
+        let mut temp_file = builder.tempfile_in(parent).map_err(|e| {
             if e.kind() == std::io::ErrorKind::PermissionDenied {
                 WardFileError::PermissionDenied(parent.to_path_buf())
             } else {
