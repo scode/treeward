@@ -377,6 +377,7 @@ USAGE:
   treeward status --verify                # Checksum files with changed metadata
   treeward status --always-verify         # Checksum all files (detect silent corruption)
   treeward status --diff                  # Show detailed diff of changes (implies --verify)
+  treeward status --all                   # Also list unchanged files
   treeward -C /path/to/project status     # Check specific directory
 
 CHANGE TYPES:
@@ -489,6 +490,11 @@ Status codes:
   R   Removed - entry in ward no longer exists
   M?  PossiblyModified - metadata differs, content not verified
   M   Modified - content verified as changed
+  .   Unchanged - entry matches ward (only shown with --all)
+
+By default only changed entries are listed. With --all, unchanged entries are
+included too, which is useful for confirming exactly what a ward covers. Unchanged
+entries do not affect the fingerprint or the exit code.
 
 Paths are relative to the root directory being checked. For recursive checks, subdirectory
 paths are shown with their full relative path.
