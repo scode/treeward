@@ -17,3 +17,7 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
   is unambiguous; all other Unicode is printed unchanged. This prevents crafted names from injecting terminal escape
   sequences (OSC/CSI) into the listing. Diagnostic logging (`-v`) and error messages on stderr are NOT covered by this
   guarantee and may contain raw names.
+
+- A child entry that vanishes between listing a directory and inspecting it is a fatal error (concurrent modification);
+  it is never silently treated as removed. This includes a directory that disappears between being listed and being
+  walked. A directory that was already absent when its parent was listed is reported as removed by its parent.

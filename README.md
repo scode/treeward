@@ -327,8 +327,9 @@ initialization and updates checksum every file.
 ### Concurrent modification detection
 
 Before and after checksumming a file, treeward compares mtime to detect changes during the read operation. If detected,
-it returns an error (no retry logic). Note that detection can never be guaranteed and should be considered a courtesy
-best effort.
+it returns an error (no retry logic). Similarly, an entry that vanishes between listing a directory and inspecting it is
+reported as a fatal concurrent-modification error, never silently treated as a removal. Note that detection can never be
+guaranteed and should be considered a courtesy best effort.
 
 ### TOCTOU protection
 

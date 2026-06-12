@@ -360,7 +360,13 @@ pub fn compute_status(
         purpose,
         diff_mode,
     };
-    walk_directory(ctx, &root, &mut statuses, &mut fingerprint_records)?;
+    walk_directory(
+        ctx,
+        &root,
+        DirExpectation::Present,
+        &mut statuses,
+        &mut fingerprint_records,
+    )?;
 
     statuses.sort_by(|a, b| a.path().cmp(b.path()));
     // Keep fingerprint deterministic even if traversal order changes in the future.
@@ -378,9 +384,28 @@ pub fn compute_status(
     })
 }
 
+/// How a directory's absence should be interpreted when walking into it.
+///
+/// The same `DirectoryNotFound` from listing means two very different things
+/// depending on where the walk learned about the directory, so the caller's
+/// knowledge has to travel with the recursion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirExpectation {
+    /// Observed on the filesystem moments ago (in the parent's listing, or as
+    /// the canonicalized root): finding it gone now is a concurrent
+    /// modification and fatal.
+    Present,
+    /// Known only from ward state: it is expected to be missing on disk. The
+    /// walk proceeds with an empty listing — typically a no-op, since the
+    /// directory's own ward file vanished with it; the parent's comparison is
+    /// what reports the directory as Removed.
+    MaybeRemoved,
+}
+
 fn walk_directory(
     ctx: WalkContext<'_>,
     current_dir: &Path,
+    expectation: DirExpectation,
     statuses: &mut Vec<StatusEntry>,
     fingerprint_records: &mut Vec<FingerprintRecord>,
 ) -> Result<(), StatusError> {
@@ -390,9 +415,16 @@ fn walk_directory(
     let ward_file = WardFile::load_if_exists(&ward_path)?;
     let ward_entries = ward_file.map(|wf| wf.entries).unwrap_or_default();
 
+    // Per-entry failures inside an existing directory (including a child
+    // vanishing mid-listing) are always fatal and propagate. A missing
+    // directory is tolerated only when ward state is the sole reason we are
+    // here; a directory that was just observed on the filesystem must still
+    // exist, or we are racing a concurrent modification.
     let fs_entries = match list_directory(current_dir) {
         Ok(entries) => entries,
-        Err(DirListError::Io(e)) if e.kind() == ErrorKind::NotFound => BTreeMap::new(),
+        Err(DirListError::DirectoryNotFound(_)) if expectation == DirExpectation::MaybeRemoved => {
+            BTreeMap::new()
+        }
         Err(e) => return Err(StatusError::DirList(e)),
     };
 
@@ -408,14 +440,26 @@ fn walk_directory(
     for (name, entry) in &fs_entries {
         if matches!(entry, FsEntry::Dir { .. }) {
             let child_path = current_dir.join(name);
-            walk_directory(ctx, &child_path, statuses, fingerprint_records)?;
+            walk_directory(
+                ctx,
+                &child_path,
+                DirExpectation::Present,
+                statuses,
+                fingerprint_records,
+            )?;
         }
     }
 
     for (name, entry) in &ward_entries {
         if matches!(entry, WardEntry::Dir {}) && !fs_entries.contains_key(name) {
             let child_path = current_dir.join(name);
-            walk_directory(ctx, &child_path, statuses, fingerprint_records)?;
+            walk_directory(
+                ctx,
+                &child_path,
+                DirExpectation::MaybeRemoved,
+                statuses,
+                fingerprint_records,
+            )?;
         }
     }
 

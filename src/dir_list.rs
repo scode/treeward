@@ -16,6 +16,20 @@ const TREEWARD_FILENAME: &str = ".treeward";
 pub enum DirListError {
     #[error("IO error: {0}")]
     Io(std::io::Error),
+    /// The listed directory itself does not exist.
+    ///
+    /// Kept distinct from `Io` so callers can treat a vanished directory as
+    /// "removed" without conflating it with per-entry NotFound inside an
+    /// existing directory — conflating the two would make a directory full of
+    /// intact files look empty when a single child vanishes mid-listing.
+    #[error("directory not found: {0}")]
+    DirectoryNotFound(PathBuf),
+    /// A child entry vanished between `read_dir` and inspecting it.
+    ///
+    /// Fatal, mirroring the checksumming concurrent-modification policy: a
+    /// race must surface as an error, never be misreported as a removal.
+    #[error("entry vanished during listing (concurrent modification): {0}")]
+    EntryVanished(PathBuf),
     #[error("Permission denied: {0}")]
     PermissionDenied(PathBuf),
     #[error("non-UTF-8 path not supported: {0:?}")]
@@ -35,6 +49,8 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
     let read_dir = std::fs::read_dir(root).map_err(|e| {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
             DirListError::PermissionDenied(root.to_path_buf())
+        } else if e.kind() == std::io::ErrorKind::NotFound {
+            DirListError::DirectoryNotFound(root.to_path_buf())
         } else {
             DirListError::Io(e)
         }
@@ -50,13 +66,7 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
             continue;
         }
 
-        let metadata = std::fs::symlink_metadata(&path).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::PermissionDenied {
-                DirListError::PermissionDenied(path.clone())
-            } else {
-                DirListError::Io(e)
-            }
-        })?;
+        let metadata = std::fs::symlink_metadata(&path).map_err(|e| child_error(&path, e))?;
 
         let filename = path
             .file_name()
@@ -68,13 +78,7 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
         let file_type = metadata.file_type();
 
         let fs_entry = if file_type.is_symlink() {
-            let symlink_target = std::fs::read_link(&path).map_err(|e| {
-                if e.kind() == std::io::ErrorKind::PermissionDenied {
-                    DirListError::PermissionDenied(path.clone())
-                } else {
-                    DirListError::Io(e)
-                }
-            })?;
+            let symlink_target = std::fs::read_link(&path).map_err(|e| child_error(&path, e))?;
             FsEntry::Symlink { symlink_target }
         } else if file_type.is_dir() {
             let mtime = metadata.modified().map_err(DirListError::Io)?;
@@ -91,6 +95,19 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
     }
 
     Ok(entries)
+}
+
+/// Maps a per-child inspection failure during listing.
+///
+/// NotFound here means the child existed in the directory listing moments
+/// ago: a concurrent modification, kept deliberately distinct from the
+/// directory-level NotFound handled at the `read_dir` open.
+fn child_error(path: &Path, e: std::io::Error) -> DirListError {
+    match e.kind() {
+        std::io::ErrorKind::PermissionDenied => DirListError::PermissionDenied(path.to_path_buf()),
+        std::io::ErrorKind::NotFound => DirListError::EntryVanished(path.to_path_buf()),
+        _ => DirListError::Io(e),
+    }
 }
 
 #[cfg(test)]
@@ -166,6 +183,26 @@ mod tests {
         let entries = list_directory(root).unwrap();
 
         assert_eq!(entries.len(), 0);
+    }
+
+    /// A missing directory must map to `DirectoryNotFound`, not generic `Io`.
+    ///
+    /// The status walk keys on this variant to tell "this ward-recorded
+    /// directory is genuinely absent" apart from per-entry failures inside an
+    /// existing directory; conflating the two under `Io(NotFound)` is what
+    /// once let a single vanished child make an intact directory look empty.
+    #[test]
+    fn test_missing_directory_returns_directory_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let missing = temp_dir.path().join("gone");
+
+        let result = list_directory(&missing);
+
+        assert!(
+            matches!(result, Err(DirListError::DirectoryNotFound(ref p)) if p == &missing),
+            "expected DirectoryNotFound, got {:?}",
+            result
+        );
     }
 
     #[test]
