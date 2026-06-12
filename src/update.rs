@@ -733,6 +733,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_complex_directory_tree() {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
@@ -873,6 +874,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_ward_write_permission_denied() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -908,6 +910,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_ward_write_permission_denied_subdirectory() {
         use std::os::unix::fs::PermissionsExt;
 
