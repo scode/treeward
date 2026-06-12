@@ -2,6 +2,16 @@
 
 Guidance for agents editing this repository.
 
+## Behavior Specification (SPEC.md)
+
+`SPEC.md` at the repo root specifies user-observable behavior (command output, exit codes, on-disk formats). It is the
+contract the implementation must satisfy.
+
+- When intentionally changing user-observable behavior, update `SPEC.md` in the same change.
+- Otherwise, conform to `SPEC.md`. When implementation and spec disagree, the implementation is wrong unless the spec
+  itself is shown to be — fix the code, not the spec.
+- Keep implementation details out of the spec; it describes what a user can observe, not how it is achieved.
+
 ## Style And Intent
 
 - Place Rust doc comments (`///` and `//!`) before attribute directives such as `#[derive(...)]`, `#[cfg(...)]`, and
