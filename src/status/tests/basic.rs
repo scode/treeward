@@ -129,7 +129,7 @@ fn test_removed_files() {
     entries.insert(
         "file1.txt".to_string(),
         WardEntry::File {
-            sha256: "abc123".to_string(),
+            sha256: "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1".to_string(),
             mtime_nanos: 1000,
             size: 100,
         },
@@ -164,7 +164,7 @@ fn test_removed_directory() {
     dir1_entries.insert(
         "file1.txt".to_string(),
         WardEntry::File {
-            sha256: "abc123".to_string(),
+            sha256: "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1".to_string(),
             mtime_nanos: 1000,
             size: 100,
         },
@@ -234,7 +234,7 @@ fn test_modified_file_with_verify_changed() {
     entries.insert(
         "file1.txt".to_string(),
         WardEntry::File {
-            sha256: "wrong_checksum".to_string(),
+            sha256: "baadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaad".to_string(),
             mtime_nanos: 1000,
             size: 8,
         },
@@ -308,7 +308,7 @@ fn test_mixed_changes() {
     entries.insert(
         "file2.txt".to_string(),
         WardEntry::File {
-            sha256: "abc".to_string(),
+            sha256: "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca".to_string(),
             mtime_nanos: 1000,
             size: 100,
         },

@@ -150,7 +150,7 @@ fn test_status_mode_all_with_changes() {
     entries.insert(
         "modified.txt".to_string(),
         WardEntry::File {
-            sha256: "wrong_checksum".to_string(),
+            sha256: "baadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaadbaad".to_string(),
             mtime_nanos: 1000,
             size: 8,
         },
@@ -158,7 +158,7 @@ fn test_status_mode_all_with_changes() {
     entries.insert(
         "removed.txt".to_string(),
         WardEntry::File {
-            sha256: "abc".to_string(),
+            sha256: "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca".to_string(),
             mtime_nanos: 1000,
             size: 100,
         },
@@ -284,8 +284,8 @@ fn test_removed_fingerprint_bound_to_prior_ward_state() {
         result.fingerprint
     };
 
-    let fingerprint1 = fingerprint_for_recorded_sha("aaa");
-    let fingerprint2 = fingerprint_for_recorded_sha("bbb");
+    let fingerprint1 = fingerprint_for_recorded_sha(&"a".repeat(64));
+    let fingerprint2 = fingerprint_for_recorded_sha(&"b".repeat(64));
 
     assert_ne!(
         fingerprint1, fingerprint2,

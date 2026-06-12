@@ -23,6 +23,8 @@ pub enum WardFileError {
     UnsupportedVersion(u32),
     #[error("Invalid ward entry name: {0}")]
     InvalidEntryName(String),
+    #[error("Invalid sha256 for entry {0}: must be 64 lowercase hex characters")]
+    InvalidSha256(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,6 +96,7 @@ impl WardFile {
         // Version is supported, now parse the full file
         let ward_file: WardFile = toml::from_str(content)?;
         ward_file.validate_entry_names()?;
+        ward_file.validate_file_checksums()?;
         Ok(ward_file)
     }
 
@@ -108,6 +111,25 @@ impl WardFile {
         for name in self.entries.keys() {
             if !is_valid_entry_name(name) {
                 return Err(WardFileError::InvalidEntryName(name.clone()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Reject persisted checksums that cannot have been produced by checksumming.
+    ///
+    /// treeward always writes sha256 as 64 lowercase hex characters. Anything
+    /// else in a loaded ward file is corruption or tampering and fails fast at
+    /// parse time, consistent with the `deny_unknown_fields` posture. This also
+    /// keeps hostile bytes out of every downstream consumer of the field
+    /// (display, fingerprint hashing).
+    fn validate_file_checksums(&self) -> Result<(), WardFileError> {
+        for (name, entry) in &self.entries {
+            if let WardEntry::File { sha256, .. } = entry
+                && !is_valid_sha256_hex(sha256)
+            {
+                return Err(WardFileError::InvalidSha256(name.clone()));
             }
         }
 
@@ -188,6 +210,12 @@ fn is_valid_entry_name(name: &str) -> bool {
     !name.contains('\0') && Path::new(name).file_name().is_some_and(|part| part == name)
 }
 
+/// Lowercase-only on purpose: treeward never writes uppercase hex, so accepting
+/// it would mask corruption rather than tolerate legitimate input.
+fn is_valid_sha256_hex(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,7 +230,7 @@ version = 1
 
 [entries."file1.txt"]
 type = "file"
-sha256 = "abc123"
+sha256 = "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"
 mtime_nanos = 1234567890
 size = 42
 "#;
@@ -217,7 +245,10 @@ size = 42
                 mtime_nanos,
                 size,
             } => {
-                assert_eq!(sha256, "abc123");
+                assert_eq!(
+                    sha256,
+                    "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"
+                );
                 assert_eq!(*mtime_nanos, 1234567890);
                 assert_eq!(*size, 42);
             }
@@ -312,6 +343,48 @@ type = "dir"
         assert!(matches!(result, Err(WardFileError::InvalidEntryName(_))));
     }
 
+    /// A sha256 that is not 64 lowercase hex characters is corruption and must
+    /// fail at parse time, before any downstream code (display, fingerprints,
+    /// comparison) sees the value.
+    #[test]
+    fn test_rejects_invalid_sha256() {
+        for bad_sha in [
+            "",
+            "abc123",
+            // Uppercase: treeward never writes it, so it signals corruption.
+            &"A".repeat(64),
+            // Right length, non-hex content.
+            &"g".repeat(64),
+            // Multi-byte UTF-8 (would have panicked byte-based truncation).
+            &("a".repeat(11) + "\u{e9}" + &"a".repeat(51)),
+            // 63 and 65 chars.
+            &"a".repeat(63),
+            &"a".repeat(65),
+        ] {
+            let toml_content = format!(
+                r#"
+[metadata]
+version = 1
+
+[entries."file1.txt"]
+type = "file"
+sha256 = "{}"
+mtime_nanos = 123
+size = 456
+"#,
+                bad_sha
+            );
+
+            let result = WardFile::from_toml(&toml_content);
+            assert!(
+                matches!(result, Err(WardFileError::InvalidSha256(ref name)) if name == "file1.txt"),
+                "expected InvalidSha256 for {:?}, got {:?}",
+                bad_sha,
+                result
+            );
+        }
+    }
+
     #[test]
     fn test_corrupted_symlink_missing_target() {
         let toml_content = r#"
@@ -349,7 +422,8 @@ sha256 = "should_be_rejected"
         entries.insert(
             "file1.txt".to_string(),
             WardEntry::File {
-                sha256: "abc123".to_string(),
+                sha256: "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"
+                    .to_string(),
                 mtime_nanos: 1234567890,
                 size: 42,
             },
@@ -468,7 +542,8 @@ sha256 = "should_be_rejected"
         entries.insert(
             "test_file.txt".to_string(),
             WardEntry::File {
-                sha256: "test_hash".to_string(),
+                sha256: "7e577e577e577e577e577e577e577e577e577e577e577e577e577e577e577e57"
+                    .to_string(),
                 mtime_nanos: 9876543210,
                 size: 100,
             },
@@ -510,7 +585,8 @@ sha256 = "should_be_rejected"
         entries.insert(
             "test_file.txt".to_string(),
             WardEntry::File {
-                sha256: "test_hash".to_string(),
+                sha256: "7e577e577e577e577e577e577e577e577e577e577e577e577e577e577e577e57"
+                    .to_string(),
                 mtime_nanos: 9876543210,
                 size: 100,
             },
@@ -625,7 +701,7 @@ version = 1
 
 [entries."test.txt"]
 type = "file"
-sha256 = "abc123"
+sha256 = "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"
 mtime_nanos = 1234567890
 size = 42
 unknown_field = "should_be_rejected"
@@ -642,7 +718,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             "🎉party🎊.txt".to_string(),
             WardEntry::File {
-                sha256: "abc123".to_string(),
+                sha256: "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"
+                    .to_string(),
                 mtime_nanos: 1234567890,
                 size: 42,
             },
@@ -680,7 +757,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             "ملف.txt".to_string(),
             WardEntry::File {
-                sha256: "abc123".to_string(),
+                sha256: "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"
+                    .to_string(),
                 mtime_nanos: 1234567890,
                 size: 42,
             },
@@ -691,7 +769,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             "file_ملف_mixed.txt".to_string(),
             WardEntry::File {
-                sha256: "def456".to_string(),
+                sha256: "def456def456def456def456def456def456def456def456def456def456def4"
+                    .to_string(),
                 mtime_nanos: 9876543210,
                 size: 100,
             },
@@ -722,7 +801,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             decomposed.clone(),
             WardEntry::File {
-                sha256: "abc123".to_string(),
+                sha256: "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"
+                    .to_string(),
                 mtime_nanos: 1234567890,
                 size: 42,
             },
@@ -730,7 +810,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             precomposed.clone(),
             WardEntry::File {
-                sha256: "def456".to_string(),
+                sha256: "def456def456def456def456def456def456def456def456def456def456def4"
+                    .to_string(),
                 mtime_nanos: 9876543210,
                 size: 100,
             },
@@ -738,7 +819,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             multi_combining.clone(),
             WardEntry::File {
-                sha256: "ghi789".to_string(),
+                sha256: "7897897897897897897897897897897897897897897897897897897897897897"
+                    .to_string(),
                 mtime_nanos: 5555555555,
                 size: 50,
             },
@@ -775,8 +857,14 @@ unknown_field = "should_be_rejected"
                     ..
                 },
             ) => {
-                assert_eq!(sha1, "abc123");
-                assert_eq!(sha2, "def456");
+                assert_eq!(
+                    sha1,
+                    "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"
+                );
+                assert_eq!(
+                    sha2,
+                    "def456def456def456def456def456def456def456def456def456def456def4"
+                );
                 assert_eq!(*size1, 42);
                 assert_eq!(*size2, 100);
             }
@@ -791,7 +879,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             "file with spaces.txt".to_string(),
             WardEntry::File {
-                sha256: "abc".to_string(),
+                sha256: "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca"
+                    .to_string(),
                 mtime_nanos: 1000,
                 size: 10,
             },
@@ -799,7 +888,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             "file\twith\ttabs.txt".to_string(),
             WardEntry::File {
-                sha256: "def".to_string(),
+                sha256: "defdefdefdefdefdefdefdefdefdefdefdefdefdefdefdefdefdefdefdefdefd"
+                    .to_string(),
                 mtime_nanos: 2000,
                 size: 20,
             },
@@ -807,7 +897,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             "file\"with\"quotes.txt".to_string(),
             WardEntry::File {
-                sha256: "ghi".to_string(),
+                sha256: "1212121212121212121212121212121212121212121212121212121212121212"
+                    .to_string(),
                 mtime_nanos: 3000,
                 size: 30,
             },
@@ -815,7 +906,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             "file\\with\\backslashes.txt".to_string(),
             WardEntry::File {
-                sha256: "jkl".to_string(),
+                sha256: "3434343434343434343434343434343434343434343434343434343434343434"
+                    .to_string(),
                 mtime_nanos: 4000,
                 size: 40,
             },
@@ -823,7 +915,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             "file=with=equals.txt".to_string(),
             WardEntry::File {
-                sha256: "mno".to_string(),
+                sha256: "5656565656565656565656565656565656565656565656565656565656565656"
+                    .to_string(),
                 mtime_nanos: 5000,
                 size: 50,
             },
@@ -831,7 +924,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             "file[with]brackets.txt".to_string(),
             WardEntry::File {
-                sha256: "pqr".to_string(),
+                sha256: "7878787878787878787878787878787878787878787878787878787878787878"
+                    .to_string(),
                 mtime_nanos: 6000,
                 size: 60,
             },
@@ -839,7 +933,8 @@ unknown_field = "should_be_rejected"
         entries.insert(
             "file#with#hash.txt".to_string(),
             WardEntry::File {
-                sha256: "stu".to_string(),
+                sha256: "9090909090909090909090909090909090909090909090909090909090909090"
+                    .to_string(),
                 mtime_nanos: 7000,
                 size: 70,
             },
