@@ -131,10 +131,10 @@ impl StatusEntry {
 
     pub fn ward_entry(&self) -> Option<&WardEntry> {
         match self {
-            StatusEntry::Added { ward_entry, .. } => ward_entry.as_ref(),
-            StatusEntry::Modified { ward_entry, .. } => ward_entry.as_ref(),
-            StatusEntry::Unchanged { ward_entry, .. } => ward_entry.as_ref(),
-            StatusEntry::PossiblyModified { ward_entry, .. } => ward_entry.as_ref(),
+            StatusEntry::Added { ward_entry, .. }
+            | StatusEntry::Modified { ward_entry, .. }
+            | StatusEntry::Unchanged { ward_entry, .. }
+            | StatusEntry::PossiblyModified { ward_entry, .. } => ward_entry.as_ref(),
             StatusEntry::Removed { .. } => None,
         }
     }
@@ -492,31 +492,11 @@ fn compare_entries(
         }
     }
 
-    for (name, removed_ward_entry) in ward_entries {
-        if !fs_entries.contains_key(name) {
-            let relative_path = make_relative_path(ctx.tree_root, current_dir, name)?;
-            let old_ward_entry = if ctx.diff_mode == DiffMode::Capture {
-                Some(removed_ward_entry.clone())
-            } else {
-                None
-            };
-            statuses.push(StatusEntry::Removed {
-                path: relative_path.clone(),
-                old_ward_entry,
-            });
-            fingerprint_records.push(FingerprintRecord {
-                path: relative_path,
-                status_type: StatusType::Removed,
-                payload: FingerprintPayload::Removed {
-                    ward_entry: removed_ward_entry.clone(),
-                },
-            });
-        }
-    }
-
+    // Ordering between Removed and Modified entries does not matter here:
+    // compute_status sorts statuses and fingerprint records after the walk.
     for (name, ward_entry) in ward_entries {
-        if let Some(fs_entry) = fs_entries.get(name) {
-            check_modification(
+        match fs_entries.get(name) {
+            Some(fs_entry) => check_modification(
                 ctx,
                 current_dir,
                 name,
@@ -524,7 +504,26 @@ fn compare_entries(
                 fs_entry,
                 statuses,
                 fingerprint_records,
-            )?;
+            )?,
+            None => {
+                let relative_path = make_relative_path(ctx.tree_root, current_dir, name)?;
+                let old_ward_entry = if ctx.diff_mode == DiffMode::Capture {
+                    Some(ward_entry.clone())
+                } else {
+                    None
+                };
+                statuses.push(StatusEntry::Removed {
+                    path: relative_path.clone(),
+                    old_ward_entry,
+                });
+                fingerprint_records.push(FingerprintRecord {
+                    path: relative_path,
+                    status_type: StatusType::Removed,
+                    payload: FingerprintPayload::Removed {
+                        ward_entry: ward_entry.clone(),
+                    },
+                });
+            }
         }
     }
 
@@ -833,7 +832,7 @@ fn fingerprint_payload_from_fs_entry(
 }
 
 /// Stable short code used both in terminal output and fingerprint records.
-fn status_type_code(status_type: StatusType) -> &'static str {
+pub(crate) fn status_type_code(status_type: StatusType) -> &'static str {
     match status_type {
         StatusType::Added => "A",
         StatusType::Removed => "R",
