@@ -11,4 +11,9 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
 
 ## Behaviors
 
-(none yet)
+- The entry listing printed to stdout by `status` and `verify` never emits raw control characters from scanned file
+  names, symlink targets, or ward-file fields. Control characters (including C1 controls such as the single-byte CSI)
+  are rendered as backslash escapes (`\n`, `\t`, `\u{1b}`, ...), and literal backslashes are doubled so escaped output
+  is unambiguous; all other Unicode is printed unchanged. This prevents crafted names from injecting terminal escape
+  sequences (OSC/CSI) into the listing. Diagnostic logging (`-v`) and error messages on stderr are NOT covered by this
+  guarantee and may contain raw names.
