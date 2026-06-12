@@ -296,11 +296,12 @@ fn test_removed_fingerprint_bound_to_prior_ward_state() {
 #[test]
 fn test_mtime_to_nanos_rejects_pre_epoch() {
     let pre_epoch = UNIX_EPOCH - std::time::Duration::from_secs(1);
-    let err = mtime_to_nanos(&pre_epoch).unwrap_err();
+    let err = mtime_to_nanos(&pre_epoch, Path::new("some/old.txt")).unwrap_err();
+    let msg = err.to_string();
     assert!(
-        err.to_string().contains("before UNIX epoch"),
-        "unexpected error: {}",
-        err
+        msg.contains("before the UNIX epoch") && msg.contains("some/old.txt"),
+        "error must explain the limitation and name the file: {}",
+        msg
     );
 }
 
@@ -309,11 +310,12 @@ fn test_mtime_to_nanos_rejects_u64_overflow() {
     // Just past u64::MAX nanoseconds (~year 2554), but still well within what
     // SystemTime can represent on all supported platforms.
     let far_future = UNIX_EPOCH + std::time::Duration::from_secs(18_446_744_074);
-    let err = mtime_to_nanos(&far_future).unwrap_err();
+    let err = mtime_to_nanos(&far_future, Path::new("some/future.txt")).unwrap_err();
+    let msg = err.to_string();
     assert!(
-        err.to_string().contains("overflow"),
-        "unexpected error: {}",
-        err
+        msg.contains("overflow") && msg.contains("some/future.txt"),
+        "error must explain the limitation and name the file: {}",
+        msg
     );
 }
 
@@ -338,10 +340,11 @@ fn test_status_errors_on_pre_epoch_mtime() {
         DiffMode::None,
     )
     .unwrap_err();
+    let msg = err.to_string();
     assert!(
-        err.to_string().contains("before UNIX epoch"),
-        "unexpected error: {}",
-        err
+        msg.contains("before the UNIX epoch") && msg.contains("old.txt"),
+        "error must explain the limitation and name the file: {}",
+        msg
     );
 }
 

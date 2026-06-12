@@ -466,13 +466,27 @@ fn walk_directory(
     Ok(())
 }
 
-fn mtime_to_nanos(mtime: &std::time::SystemTime) -> Result<u64, StatusError> {
+/// Convert an mtime to the persisted `u64` nanos-since-epoch representation.
+///
+/// Pre-1970 and post-~2554 mtimes do not fit the on-disk format and are a
+/// documented limitation (see SPEC.md): they abort the whole run. The error
+/// names the offending file because the abort is tree-wide and the fix (touch
+/// or re-extract the file) is per-file.
+fn mtime_to_nanos(mtime: &std::time::SystemTime, path: &Path) -> Result<u64, StatusError> {
     let nanos = mtime
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| StatusError::Other("mtime is before UNIX epoch".to_string()))?
+        .map_err(|_| {
+            StatusError::Other(format!(
+                "mtime of {} is before the UNIX epoch; pre-1970 timestamps are not supported",
+                path.display()
+            ))
+        })?
         .as_nanos();
     nanos.try_into().map_err(|_| {
-        StatusError::Other("timestamp overflow: nanoseconds exceeds u64 range".to_string())
+        StatusError::Other(format!(
+            "mtime of {} overflows the supported timestamp range (u64 nanoseconds since epoch)",
+            path.display()
+        ))
     })
 }
 
@@ -488,7 +502,7 @@ fn build_ward_entry_from_fs(
 
             Ok(WardEntry::File {
                 sha256: checksum.sha256,
-                mtime_nanos: mtime_to_nanos(&checksum.mtime)?,
+                mtime_nanos: mtime_to_nanos(&checksum.mtime, &path)?,
                 size: checksum.size,
             })
         }
@@ -609,7 +623,7 @@ fn check_modification(
                 size: fs_size,
             },
         ) => {
-            let fs_mtime_nanos = mtime_to_nanos(fs_mtime)?;
+            let fs_mtime_nanos = mtime_to_nanos(fs_mtime, &absolute_path)?;
             let metadata_differs = fs_mtime_nanos != *ward_mtime_nanos || fs_size != ward_size;
 
             let need_checksum_for_status = match ctx.policy {
@@ -635,7 +649,7 @@ fn check_modification(
                     Some(match &new_checksum {
                         Some(c) => WardEntry::File {
                             sha256: c.sha256.clone(),
-                            mtime_nanos: mtime_to_nanos(&c.mtime)?,
+                            mtime_nanos: mtime_to_nanos(&c.mtime, &absolute_path)?,
                             size: c.size,
                         },
                         None => WardEntry::File {
@@ -838,6 +852,7 @@ fn current_entry_fingerprint_payload(
     ward_entry: Option<&WardEntry>,
     policy: ChecksumPolicy,
 ) -> Result<FingerprintPayload, StatusError> {
+    let path = current_dir.join(name);
     let file_sha256 = if policy != ChecksumPolicy::Never {
         match (fs_entry, ward_entry) {
             (
@@ -846,28 +861,29 @@ fn current_entry_fingerprint_payload(
                     sha256: ward_sha, ..
                 }),
             ) => Some(ward_sha.clone()),
-            (FsEntry::File { .. }, _) => Some(checksum_file(&current_dir.join(name))?.sha256),
+            (FsEntry::File { .. }, _) => Some(checksum_file(&path)?.sha256),
             _ => None,
         }
     } else {
         None
     };
 
-    fingerprint_payload_from_fs_entry(fs_entry, file_sha256)
+    fingerprint_payload_from_fs_entry(fs_entry, file_sha256, &path)
 }
 
 fn fingerprint_payload_from_fs_entry(
     fs_entry: &FsEntry,
     file_sha256: Option<String>,
+    path: &Path,
 ) -> Result<FingerprintPayload, StatusError> {
     match fs_entry {
         FsEntry::File { mtime, size } => Ok(FingerprintPayload::File {
-            mtime_nanos: mtime_to_nanos(mtime)?,
+            mtime_nanos: mtime_to_nanos(mtime, path)?,
             size: *size,
             sha256: file_sha256,
         }),
         FsEntry::Dir { mtime } => Ok(FingerprintPayload::Dir {
-            mtime_nanos: mtime_to_nanos(mtime)?,
+            mtime_nanos: mtime_to_nanos(mtime, path)?,
         }),
         FsEntry::Symlink { symlink_target } => Ok(FingerprintPayload::Symlink {
             symlink_target: symlink_target.clone(),

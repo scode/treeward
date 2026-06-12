@@ -160,7 +160,7 @@ fn test_diff_capture_on_checksum_only_difference() {
 
     let recorded_entry = WardEntry::File {
         sha256: "c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de".to_string(),
-        mtime_nanos: mtime_to_nanos(&actual_checksum.mtime).unwrap(),
+        mtime_nanos: mtime_to_nanos(&actual_checksum.mtime, Path::new("file1.txt")).unwrap(),
         size: actual_checksum.size,
     };
     let mut entries = BTreeMap::new();
