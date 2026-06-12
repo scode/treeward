@@ -37,3 +37,7 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
   into place are both flushed (including a parent-directory fsync) before success is reported. On filesystems that do
   not support directory fsync (some FUSE and network mounts), and on non-Unix platforms, the rename flush is skipped and
   durability of the rename is best-effort.
+
+- Files with modification times before the Unix epoch (pre-1970) or beyond the u64 nanosecond range (~year 2554) are not
+  supported: `init`/`status`/`update`/`verify` abort with a fatal error naming the offending file. This is a deliberate
+  limitation of the `mtime_nanos` on-disk format.
