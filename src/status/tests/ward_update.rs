@@ -190,8 +190,9 @@ fn test_ward_update_purpose_ward_entry_is_some() {
 /// Verifies the checksum reuse optimization when metadata is unchanged.
 ///
 /// When `StatusPurpose::WardUpdate` is used with `ChecksumPolicy::WhenPossiblyModified`
-/// (the default), files whose metadata (mtime, size) matches the ward file should NOT
-/// be re-checksummed. Instead, the existing checksum from the ward file is reused.
+/// (the CLI's `--verify`; the CLI default is `Never`), files whose metadata (mtime,
+/// size) matches the ward file should NOT be re-checksummed. Instead, the existing
+/// checksum from the ward file is reused.
 /// This optimization makes incremental updates fast - only changed files are checksummed.
 ///
 /// This test proves the optimization works by storing a fake checksum in the ward file

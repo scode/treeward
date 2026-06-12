@@ -54,9 +54,11 @@ pub enum StatusType {
 /// Some variants carry `ward_entry` and/or `old_ward_entry` fields:
 ///
 /// - `ward_entry: Option<WardEntry>` - The current/new ward data for this entry.
-///   Populated when `StatusPurpose::WardUpdate` is used and, for differing entries,
-///   when `DiffMode::Capture` is enabled to show new values in diffs. When present,
-///   it is always complete (never contains placeholder data).
+///   Populated when `StatusPurpose::WardUpdate` is used. Under `DiffMode::Capture`
+///   it is also populated for every Modified/PossiblyModified entry (including
+///   type changes) and for Unchanged file and symlink entries (reachable via
+///   `status --diff --all`) - but not for Added entries or unchanged directories.
+///   When present, it is always complete (never contains placeholder data).
 ///
 /// - `old_ward_entry: Option<WardEntry>` - The original ward data before the change.
 ///   Only populated when `DiffMode::Capture` is used, to enable displaying what
@@ -84,8 +86,9 @@ pub enum StatusType {
 ///   ward data.
 ///
 /// - `Unchanged`: Entry exists in both and matches. The `ward_entry` contains the
-///   current entry data (if `WardUpdate` purpose), which may have updated metadata
-///   even if content is unchanged. No `old_ward_entry` since nothing changed.
+///   current entry data (with `WardUpdate` purpose, or with `DiffMode::Capture` for
+///   file and symlink entries), which may have updated metadata even if content is
+///   unchanged. No `old_ward_entry` since nothing changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatusEntry {
     Added {
@@ -172,10 +175,11 @@ pub enum StatusPurpose {
     /// Display status to user.
     ///
     /// `StatusEntry` variants will usually have `ward_entry: None`. When
-    /// `DiffMode::Capture` is enabled, modified entries include `ward_entry`
-    /// to show new values in diffs. Checksumming is controlled entirely by
-    /// `ChecksumPolicy` (to determine Modified vs PossiblyModified), but the
-    /// checksum result is not retained otherwise.
+    /// `DiffMode::Capture` is enabled, entries include `ward_entry` to show
+    /// new values in diffs. Status classification (Modified vs PossiblyModified)
+    /// is driven by `ChecksumPolicy`, but `DiffMode::Capture` independently
+    /// forces checksumming of metadata-differing files - even under
+    /// `ChecksumPolicy::Never` - so diffs can show old vs new checksums.
     Display,
 
     /// Generate ward files - populate `ward_entry` with complete data.
@@ -195,6 +199,10 @@ pub enum StatusPurpose {
     WardUpdate,
 }
 
+/// Controls whether Unchanged entries appear in results.
+///
+/// NOTE: `StatusPurpose::WardUpdate` includes Unchanged entries regardless of
+/// mode, since ward building needs complete entry data for every live entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusMode {
     /// Only include files with interesting changes (added, removed, modified, possibly modified)
@@ -308,7 +316,8 @@ enum FingerprintPayload {
 /// * `PossiblyModified` - Metadata differs (only with `ChecksumPolicy::Never`)
 /// * `Modified` - Content differs (checksum mismatch, symlink target changed,
 ///   or type changed)
-/// * `Unchanged` - Entry exists in both and matches (only with `StatusMode::All`)
+/// * `Unchanged` - Entry exists in both and matches (with `StatusMode::All`, and
+///   always with `StatusPurpose::WardUpdate` regardless of mode)
 ///
 /// # Errors
 ///

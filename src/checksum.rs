@@ -3,8 +3,10 @@
 //! Computes SHA-256 for regular files and returns checksum, mtime, and size
 //! values used to build `WardEntry::File`.
 //!
-//! Concurrent modification is detected by comparing mtimes before and after the
-//! read, returning `ChecksumError::ConcurrentModification` when they differ.
+//! Concurrent modification is detected two ways: mtimes are compared before and
+//! after the read, and (on Unix) the path is re-checked after reading to confirm
+//! it still names the opened file (dev/ino), catching rename/replace races. Either
+//! failure returns `ChecksumError::ConcurrentModification`.
 
 use sha2::{Digest, Sha256};
 use std::fs::File;
@@ -36,9 +38,12 @@ pub struct FileChecksum {
 /// Computes the SHA-256 checksum of a file with concurrent modification detection.
 ///
 /// # Behavior
+/// - Opens the file without following symlinks (`O_NOFOLLOW` or platform equivalent)
 /// - Records the file's modification time before reading
 /// - Reads the file in chunks and computes SHA-256
 /// - Verifies the modification time hasn't changed after reading
+/// - On Unix, also verifies the path still names the opened file (dev/ino),
+///   so rename/replace during the read is detected, not just in-place writes
 /// - Returns an error if the file was modified during checksumming
 ///
 /// # Errors (may be changed in the future)

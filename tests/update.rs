@@ -415,7 +415,7 @@ fn update_allow_init_is_idempotent() {
         "ward file content should remain identical after third run"
     );
 
-    // Verify status shows no changes
+    // verify must report a clean tree
     treeward_cmd(temp.path()).arg("verify").assert().success();
 }
 

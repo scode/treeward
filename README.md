@@ -67,6 +67,16 @@ treeward verify
 
 ## Commands
 
+### Global flags
+
+All commands accept:
+
+- `-C <DIRECTORY>` - Change to directory before operating (like `git -C`)
+- `-v` / `--verbose` - Increase log verbosity (`-v` for info, `-vv` for debug)
+- `--log-level <LEVEL>` - Set log level explicitly (`error`, `warn`, `info`, `debug`, `trace`); conflicts with `-v`
+
+Both logging flags take precedence over the `RUST_LOG` environment variable, which is also honored.
+
 ### `init` - Initialize ward files
 
 Performs first-time initialization of `.treeward` files in a directory tree. Checksums all files and creates ward
@@ -134,6 +144,9 @@ treeward status --always-verify
 
 # Show detailed per-entry diff (implies --verify)
 treeward status --diff
+
+# Also list unchanged files (shown with a "." status code)
+treeward status --all
 ```
 
 `--diff` shows field-level changes for modified and removed entries. It implies `--verify` (files with changed metadata
@@ -150,10 +163,11 @@ R  oldfile.txt
 
 **Change types:**
 
-- `Added` - New files, directories, or symlinks not in the ward
-- `Removed` - Entries in the ward that no longer exist
-- `PossiblyModified` - Files whose metadata (mtime/size) differs from ward
-- `Modified` - Content differs (checksum mismatch when verified), symlink target changed, or entry type changed
+- `A` Added - New files, directories, or symlinks not in the ward
+- `R` Removed - Entries in the ward that no longer exist
+- `M?` PossiblyModified - Files whose metadata (mtime/size) differs from ward
+- `M` Modified - Content differs (checksum mismatch when verified), symlink target changed, or entry type changed
+- `.` Unchanged - Entry matches the ward (only shown with `--all`; does not affect fingerprint or exit code)
 
 **Fingerprints:**
 
