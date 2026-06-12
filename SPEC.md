@@ -32,3 +32,8 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
 
 - Checksumming a path that is no longer a regular file (e.g. swapped for a FIFO or device mid-run) is a fatal error; it
   never blocks waiting on the object.
+
+- On Unix, when `init`/`update` reports success, written `.treeward` files are durable: file contents and the rename
+  into place are both flushed (including a parent-directory fsync) before success is reported. On filesystems that do
+  not support directory fsync (some FUSE and network mounts), and on non-Unix platforms, the rename flush is skipped and
+  durability of the rename is best-effort.
