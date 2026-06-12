@@ -29,3 +29,6 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
   created file — not owner-only modes that would break `verify` for other users in group-shared trees. NOTE: a readable
   ward file discloses the sha256, size, and mtime of every sibling entry, including files whose own permissions are more
   restrictive. Anyone needing those checksums kept private must rely on directory permissions or a stricter umask.
+
+- Checksumming a path that is no longer a regular file (e.g. swapped for a FIFO or device mid-run) is a fatal error; it
+  never blocks waiting on the object.

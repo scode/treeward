@@ -109,9 +109,14 @@ fn ensure_path_still_names_open_file(
 fn open_regular_file_no_follow(path: &Path) -> Result<File, ChecksumError> {
     use std::os::unix::fs::OpenOptionsExt;
 
+    // O_NOFOLLOW rejects a symlink swapped in after type dispatch. O_NONBLOCK
+    // covers the analogous FIFO swap: without it, open(2) on a FIFO blocks
+    // until a writer appears, hanging the run; with it, the open returns
+    // immediately and the is_file() check below rejects the FIFO. O_NONBLOCK
+    // has no effect on regular-file reads, so leaving it set is harmless.
     let file = std::fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::PermissionDenied {
@@ -233,6 +238,32 @@ mod tests {
 
         let result = checksum_file(&link);
 
+        assert!(matches!(result, Err(ChecksumError::NotRegularFile(_))));
+    }
+
+    /// A FIFO must yield NotRegularFile, not block forever: open(2) on a FIFO
+    /// waits for a writer unless O_NONBLOCK is set. Run in a helper thread
+    /// with a timeout so a regression fails the test instead of hanging the
+    /// whole suite.
+    #[test]
+    #[cfg(unix)]
+    fn test_checksum_fifo_is_not_regular_file() {
+        use nix::sys::stat;
+        use nix::unistd;
+        use std::time::Duration;
+
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let fifo_path = temp_dir.path().join("fifo");
+        unistd::mkfifo(&fifo_path, stat::Mode::S_IRWXU).unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(checksum_file(&fifo_path));
+        });
+
+        let result = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("checksum_file blocked opening a FIFO - O_NONBLOCK regression");
         assert!(matches!(result, Err(ChecksumError::NotRegularFile(_))));
     }
 
