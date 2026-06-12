@@ -61,9 +61,13 @@ pub struct WardResult {
 ///
 /// * `root` - Directory to ward (will be canonicalized)
 /// * `options` - Configuration options controlling the ward operation:
-///   - `init`: Allow warding when no `.treeward` exists in root (required for first ward)
+///   - `init`: This is a first-time initialization; fails if a ward already exists
+///   - `allow_init`: Accept both initialized and uninitialized roots (idempotent mode)
 ///   - `fingerprint`: Optional fingerprint from `compute_status()` to validate before writing
 ///   - `dry_run`: Preview what would be updated without writing any files
+///   - `checksum_policy`: When to checksum files; affects reported status types and
+///     therefore fingerprint validation (must match the policy used to produce the
+///     fingerprint)
 ///
 /// # Behavior
 ///
@@ -73,9 +77,12 @@ pub struct WardResult {
 /// - This makes incremental warding very fast (only checksums what changed)
 ///
 /// **Initialization:**
-/// - If `!options.init` and no `.treeward` in root, returns `NotInitialized` error
-/// - The `init` flag only applies to the root directory - subdirectories can always
-///   have `.treeward` files created without `init`
+/// - Without `init` or `allow_init`, a missing root `.treeward` is a `NotInitialized` error
+/// - With `init` (and not `allow_init`), an existing root `.treeward` is an
+///   `AlreadyInitialized` error - `init` asserts first-time use
+/// - `allow_init` bypasses both checks, accepting either state
+/// - These checks only apply to the root directory - subdirectories always
+///   have `.treeward` files created as needed
 ///
 /// **Fingerprint validation:**
 /// - If `options.fingerprint` is provided, validates current changes match the fingerprint
