@@ -45,26 +45,15 @@ fn format_target(target: &Path) -> String {
 
 pub fn print_statuses(statuses: &[status::StatusEntry], show_diff: bool) {
     for entry in statuses {
-        let status_code = match entry.status_type() {
-            status::StatusType::Added => "A",
-            status::StatusType::Removed => "R",
-            status::StatusType::PossiblyModified => "M?",
-            status::StatusType::Modified => "M",
-            status::StatusType::Unchanged => ".",
-        };
+        let status_code = status::status_type_code(entry.status_type());
 
         println!("{:<2} {}", status_code, escape_control(entry.path()));
 
         if show_diff {
-            print_diff(entry);
+            for line in format_diff_lines(entry) {
+                println!("{}", line);
+            }
         }
-    }
-}
-
-fn print_diff(entry: &status::StatusEntry) {
-    let lines = format_diff_lines(entry);
-    for line in lines {
-        println!("{}", line);
     }
 }
 

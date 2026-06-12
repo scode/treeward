@@ -198,10 +198,6 @@ fn handle_status(
         .iter()
         .any(|c| c.status_type() != status::StatusType::Unchanged);
 
-    if result.statuses.is_empty() {
-        return Ok(ExitCode::SUCCESS);
-    }
-
     diffing::print_statuses(&result.statuses, diff);
 
     if !has_interesting_changes {
