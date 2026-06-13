@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-06-12
+
+### Changed
+
+- Escape control characters in status output (#108)
+- Error on entries vanishing mid-listing instead of misreporting removals (#115)
+- Reject ward files with malformed sha256 fields at load time (#116)
+- Create ward files with umask-derived permissions instead of 0600 (#117)
+- Avoid hanging when a checksummed file is swapped for a FIFO (#118)
+- Fsync parent directory so ward file writes survive crashes (#119)
+- Name the offending file when an mtime is outside the supported range (#120)
+
 ## [0.3.0] - 2026-04-26
 
 ### Changed
@@ -16,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [0.2.0] - 2026-03-07
 
+[0.3.1]: https://github.com/scode/treeward/compare/v0.3.0..v0.3.1
 [0.3.0]: https://github.com/scode/treeward/compare/v0.2.0..v0.3.0
 [0.2.0]: https://github.com/scode/treeward/tree/v0.2.0
 
