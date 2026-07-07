@@ -468,10 +468,11 @@ fn walk_directory(
 
 /// Convert an mtime to the persisted `u64` nanos-since-epoch representation.
 ///
-/// Pre-1970 and post-~2554 mtimes do not fit the on-disk format and are a
-/// documented limitation (see SPEC.md): they abort the whole run. The error
-/// names the offending file because the abort is tree-wide and the fix (touch
-/// or re-extract the file) is per-file.
+/// Pre-1970 mtimes and mtimes above `i64::MAX` nanoseconds since the epoch
+/// (around year 2262) do not fit the TOML on-disk format. TOML integers are
+/// `i64`, even though the runtime representation stores `mtime_nanos` as
+/// `u64`. Rejecting them here preserves the documented tree-wide abort while
+/// still naming the file the user needs to fix.
 fn mtime_to_nanos(mtime: &std::time::SystemTime, path: &Path) -> Result<u64, StatusError> {
     let nanos = mtime
         .duration_since(UNIX_EPOCH)
@@ -482,12 +483,13 @@ fn mtime_to_nanos(mtime: &std::time::SystemTime, path: &Path) -> Result<u64, Sta
             ))
         })?
         .as_nanos();
-    nanos.try_into().map_err(|_| {
-        StatusError::Other(format!(
-            "mtime of {} overflows the supported timestamp range (u64 nanoseconds since epoch)",
+    if nanos > i64::MAX as u128 {
+        return Err(StatusError::Other(format!(
+            "mtime of {} overflows the supported timestamp range (i64 nanoseconds since epoch)",
             path.display()
-        ))
-    })
+        )));
+    }
+    Ok(nanos as u64)
 }
 
 fn build_ward_entry_from_fs(

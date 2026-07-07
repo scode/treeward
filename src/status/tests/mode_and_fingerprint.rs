@@ -306,14 +306,20 @@ fn test_mtime_to_nanos_rejects_pre_epoch() {
 }
 
 #[test]
-fn test_mtime_to_nanos_rejects_u64_overflow() {
-    // Just past u64::MAX nanoseconds (~year 2554), but still well within what
-    // SystemTime can represent on all supported platforms.
-    let far_future = UNIX_EPOCH + std::time::Duration::from_secs(18_446_744_074);
+fn test_mtime_to_nanos_rejects_toml_integer_overflow() {
+    let boundary = UNIX_EPOCH
+        + std::time::Duration::from_secs(9_223_372_036)
+        + std::time::Duration::from_nanos(854_775_807);
+    assert_eq!(
+        mtime_to_nanos(&boundary, Path::new("some/boundary.txt")).unwrap(),
+        i64::MAX as u64
+    );
+
+    let far_future = UNIX_EPOCH + std::time::Duration::from_secs(9_223_372_037);
     let err = mtime_to_nanos(&far_future, Path::new("some/future.txt")).unwrap_err();
     let msg = err.to_string();
     assert!(
-        msg.contains("overflow") && msg.contains("some/future.txt"),
+        msg.contains("i64 nanoseconds since epoch") && msg.contains("some/future.txt"),
         "error must explain the limitation and name the file: {}",
         msg
     );

@@ -411,8 +411,8 @@ treeward update  # Always succeeds, no fingerprint check
 2. **Deterministic serialization** - `BTreeMap` ensures stable TOML output
 3. **Error handling philosophy** - Corrupted ward files and permission errors are fatal; never silently skip problems
 4. **High-precision timestamps** - Nanosecond-precision timestamps for accurate modification detection. NOTE: mtimes
-   before the Unix epoch (pre-1970, e.g. from broken tar extracts) or beyond ~year 2554 are unsupported and abort with a
-   fatal error naming the offending file
+   before the Unix epoch (pre-1970, e.g. from broken tar extracts) or above `i64::MAX` nanoseconds since the epoch
+   (~year 2262) are unsupported and abort with a fatal error naming the offending file
 5. **Security-conscious** - SHA-256 checksums, concurrent modification detection, TOCTOU protection
 
 ## Development
