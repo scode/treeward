@@ -422,6 +422,7 @@ Standard Rust idioms apply:
 - `cargo test --locked --all-features --all-targets`
 - `cargo fmt`
 - `cargo clippy --all-targets --all-features -- -D warnings`
+- `dprint fmt` (formats Markdown, TOML, and JSON; CI rejects unformatted files)
 
 ## License
 
