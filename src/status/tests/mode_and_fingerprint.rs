@@ -195,10 +195,19 @@ fn test_status_mode_all_with_changes() {
     assert_eq!(change_types.get("removed.txt"), Some(&StatusType::Removed));
 }
 
+/// Unchanged entries must not contribute to the fingerprint.
+///
+/// The cross-mode assertion below is not enough by itself: fingerprint records
+/// are collected independently of display mode, so a bug that hashed unchanged
+/// entries would leak into both mode results equally. Comparing against an empty
+/// tree pins the actual exclusion property because `compute_fingerprint` hashes
+/// only its records and does not include the root path.
 #[test]
 fn test_unchanged_not_in_fingerprint() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
+    let empty_temp = TempDir::new().unwrap();
+    let empty_root = empty_temp.path();
 
     fs::write(root.join("file1.txt"), "content1").unwrap();
 
@@ -220,6 +229,7 @@ fn test_unchanged_not_in_fingerprint() {
         },
     );
     create_ward_file(root, entries);
+    create_ward_file(empty_root, BTreeMap::new());
 
     let result_interesting = compute_status(
         root,
@@ -237,12 +247,22 @@ fn test_unchanged_not_in_fingerprint() {
         DiffMode::None,
     )
     .unwrap();
+    let result_empty = compute_status(
+        empty_root,
+        ChecksumPolicy::Never,
+        StatusMode::Interesting,
+        StatusPurpose::Display,
+        DiffMode::None,
+    )
+    .unwrap();
 
     assert_eq!(result_interesting.statuses.len(), 0);
     assert_eq!(result_all.statuses.len(), 1);
+    assert_eq!(result_empty.statuses.len(), 0);
     assert_eq!(result_all.statuses[0].status_type(), StatusType::Unchanged);
 
     assert_eq!(result_interesting.fingerprint, result_all.fingerprint);
+    assert_eq!(result_interesting.fingerprint, result_empty.fingerprint);
 }
 
 /// A Removed entry must bind the fingerprint to the prior ward state, not just
