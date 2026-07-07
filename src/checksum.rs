@@ -267,6 +267,44 @@ mod tests {
         assert!(matches!(result, Err(ChecksumError::NotRegularFile(_))));
     }
 
+    /// Pins the dev/ino half of swap detection, which the mtime race test does
+    /// not cover.
+    #[test]
+    #[cfg(unix)]
+    fn test_ensure_path_still_names_open_file_accepts_unchanged_file() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("file.txt");
+
+        std::fs::write(&path, "original").unwrap();
+        let file = File::open(&path).unwrap();
+        let metadata = file.metadata().unwrap();
+
+        ensure_path_still_names_open_file(&path, &metadata).unwrap();
+    }
+
+    /// Pins the dev/ino half of swap detection, which the mtime race test does
+    /// not cover.
+    #[test]
+    #[cfg(unix)]
+    fn test_ensure_path_still_names_open_file_detects_replaced_path() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("file.txt");
+        let replacement = temp_dir.path().join("replacement.txt");
+
+        std::fs::write(&path, "original").unwrap();
+        std::fs::write(&replacement, "replacement").unwrap();
+        let file = File::open(&path).unwrap();
+        let metadata = file.metadata().unwrap();
+
+        std::fs::rename(&replacement, &path).unwrap();
+        let result = ensure_path_still_names_open_file(&path, &metadata);
+
+        assert!(matches!(
+            result,
+            Err(ChecksumError::ConcurrentModification(error_path)) if error_path == path
+        ));
+    }
+
     #[test]
     fn test_checksum_deterministic() {
         let mut temp_file = NamedTempFile::new().unwrap();
