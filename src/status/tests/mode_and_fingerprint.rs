@@ -313,6 +313,125 @@ fn test_removed_fingerprint_bound_to_prior_ward_state() {
     );
 }
 
+/// A removed symlink must bind the fingerprint to its recorded target.
+///
+/// This uses only ward state and an empty filesystem. No platform symlink
+/// support is involved: the property being pinned is that two missing symlinks
+/// with the same path but different recorded `symlink_target` values do not
+/// share a fingerprint.
+#[test]
+fn test_removed_symlink_fingerprint_bound_to_prior_target() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+
+    let fingerprint_for_recorded_target = |target: &str| {
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            "removed-link".to_string(),
+            WardEntry::Symlink {
+                symlink_target: PathBuf::from(target),
+            },
+        );
+        create_ward_file(root, entries);
+
+        let result = compute_status(
+            root,
+            ChecksumPolicy::Never,
+            StatusMode::Interesting,
+            StatusPurpose::Display,
+            DiffMode::None,
+        )
+        .unwrap();
+
+        assert_eq!(result.statuses.len(), 1);
+        assert_eq!(result.statuses[0].status_type(), StatusType::Removed);
+        assert_eq!(result.statuses[0].path(), "removed-link");
+        result.fingerprint
+    };
+
+    let fingerprint1 = fingerprint_for_recorded_target("old-target");
+    let fingerprint2 = fingerprint_for_recorded_target("new-target");
+
+    assert_ne!(
+        fingerprint1, fingerprint2,
+        "fingerprint must reflect the removed symlink's recorded target"
+    );
+}
+
+/// A removed dir and a removed file at the same path must not share a
+/// fingerprint.
+///
+/// This is the observable kind-difference guarantee. It is deliberately weak
+/// as a variant-tag check: the file payload's own field bytes would keep the
+/// two fingerprints distinct even if the `removed_*` variant tags were
+/// dropped from hashing. The tag itself is pinned by
+/// `test_removed_dir_payload_contributes_its_variant_tag` below, which works
+/// at the payload-hashing level where the tag is the only material.
+#[test]
+fn test_removed_dir_fingerprint_bound_to_entry_kind() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+
+    let fingerprint_for_entry = |ward_entry: WardEntry| {
+        let mut entries = BTreeMap::new();
+        entries.insert("removed".to_string(), ward_entry);
+        create_ward_file(root, entries);
+
+        let result = compute_status(
+            root,
+            ChecksumPolicy::Never,
+            StatusMode::Interesting,
+            StatusPurpose::Display,
+            DiffMode::None,
+        )
+        .unwrap();
+
+        assert_eq!(result.statuses.len(), 1);
+        assert_eq!(result.statuses[0].status_type(), StatusType::Removed);
+        assert_eq!(result.statuses[0].path(), "removed");
+        result.fingerprint
+    };
+
+    let dir_fingerprint = fingerprint_for_entry(WardEntry::Dir {});
+    let file_fingerprint = fingerprint_for_entry(WardEntry::File {
+        sha256: "a".repeat(64),
+        mtime_nanos: 1000,
+        size: 5,
+    });
+
+    assert_ne!(
+        dir_fingerprint, file_fingerprint,
+        "fingerprint must reflect the removed entry kind"
+    );
+}
+
+/// The `removed_dir` variant tag itself must be hashed.
+///
+/// `WardEntry::Dir` has no fields, so a removed dir's entire payload
+/// contribution is its variant tag. Hashing the payload must therefore change
+/// the digest relative to hashing nothing — an implementation that dropped
+/// the `removed_*` tags from `hash_fingerprint_payload` would contribute zero
+/// bytes here and fail this test, which no end-to-end fingerprint comparison
+/// can detect (every other payload variant carries field bytes of its own).
+#[test]
+fn test_removed_dir_payload_contributes_its_variant_tag() {
+    let mut with_payload = Sha256::new();
+    hash_fingerprint_payload(
+        &mut with_payload,
+        &FingerprintPayload::Removed {
+            ward_entry: WardEntry::Dir {},
+        },
+    );
+
+    let empty = Sha256::new();
+
+    assert_ne!(
+        with_payload.finalize(),
+        empty.finalize(),
+        "removed_dir payload must contribute its variant tag to the hash"
+    );
+}
+
 #[test]
 fn test_mtime_to_nanos_rejects_pre_epoch() {
     let pre_epoch = UNIX_EPOCH - std::time::Duration::from_secs(1);
