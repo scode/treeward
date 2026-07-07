@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-const TREEWARD_FILENAME: &str = ".treeward";
+pub(crate) const TREEWARD_FILENAME: &str = ".treeward";
 
 #[derive(Debug, thiserror::Error)]
 pub enum DirListError {

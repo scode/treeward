@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::dir_list::TREEWARD_FILENAME;
+
 #[derive(Debug, thiserror::Error)]
 pub enum WardFileError {
     #[error("IO error: {0}")]
@@ -264,8 +266,18 @@ fn sync_dir(_dir: &Path) -> Result<(), WardFileError> {
     Ok(())
 }
 
+/// Returns whether a persisted entry name can come from `list_directory`.
+///
+/// Ward entries name immediate children only. Names containing NUL bytes,
+/// path separators, or `.`/`..` cannot appear as listed children, and
+/// `.treeward` is reserved for the ward file that `list_directory` excludes.
+/// Accepting `.treeward` would let a corrupted ward file make recursive walks
+/// descend into the ward file itself and fail later with a misleading I/O
+/// error instead of rejecting the ward file at parse time.
 fn is_valid_entry_name(name: &str) -> bool {
-    !name.contains('\0') && Path::new(name).file_name().is_some_and(|part| part == name)
+    name != TREEWARD_FILENAME
+        && !name.contains('\0')
+        && Path::new(name).file_name().is_some_and(|part| part == name)
 }
 
 /// Lowercase-only on purpose: treeward never writes uppercase hex, so accepting
@@ -398,6 +410,21 @@ version = 1
 type = "dir"
 "#,
         );
+        assert!(matches!(result, Err(WardFileError::InvalidEntryName(_))));
+    }
+
+    #[test]
+    fn test_rejects_reserved_treeward_entry_name() {
+        let result = WardFile::from_toml(
+            r#"
+[metadata]
+version = 1
+
+[entries.".treeward"]
+type = "dir"
+"#,
+        );
+
         assert!(matches!(result, Err(WardFileError::InvalidEntryName(_))));
     }
 

@@ -25,6 +25,10 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
 - A `.treeward` file whose `sha256` fields are not exactly 64 lowercase hex characters is rejected as corrupt with a
   fatal error at load time.
 
+- A `.treeward` file containing an entry whose name could not have come from scanning a directory — a name with a path
+  separator, `.`, `..`, a NUL byte, or the reserved name `.treeward` itself — is rejected as corrupt with a fatal error
+  at load time.
+
 - Written `.treeward` files get standard umask-derived permissions (0666 masked by the process umask), like any normally
   created file — not owner-only modes that would break `verify` for other users in group-shared trees. NOTE: a readable
   ward file discloses the sha256, size, and mtime of every sibling entry, including files whose own permissions are more
