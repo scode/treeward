@@ -1,7 +1,8 @@
 mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
-use common::treeward_cmd;
+use common::{status_fingerprint, treeward_cmd};
+use filetime::{FileTime, set_file_mtime};
 use predicates::prelude::*;
 use std::fs;
 #[cfg(unix)]
@@ -20,6 +21,119 @@ fn init_creates_ward_files() {
         .stdout(predicate::str::is_empty());
 
     assert!(temp.path().join(".treeward").exists());
+}
+
+#[test]
+fn init_respects_matching_fingerprint() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+
+    let (status_output, fingerprint) = status_fingerprint(temp.path(), &[]);
+    assert!(
+        !status_output.status.success(),
+        "status should fail so we can capture the fingerprint for initial warding"
+    );
+
+    treeward_cmd(temp.path())
+        .arg("init")
+        .arg("--fingerprint")
+        .arg(&fingerprint)
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    assert_file_checksum(
+        &temp.path().join(".treeward"),
+        "file.txt",
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+    );
+}
+
+#[test]
+fn init_rejects_mismatched_fingerprint() {
+    let temp = TempDir::new().unwrap();
+    let file_path = temp.path().join("file.txt");
+    fs::write(&file_path, "hello").unwrap();
+
+    let (_, fingerprint) = status_fingerprint(temp.path(), &[]);
+
+    fs::write(&file_path, "updated").unwrap();
+
+    treeward_cmd(temp.path())
+        .arg("init")
+        .arg("--fingerprint")
+        .arg(&fingerprint)
+        .assert()
+        .code(255)
+        .stderr(predicate::str::contains("Fingerprint mismatch"));
+
+    assert!(!temp.path().join(".treeward").exists());
+}
+
+#[test]
+fn init_verify_matches_verify_fingerprint_and_writes_checksum() {
+    let temp = TempDir::new().unwrap();
+    make_partially_warded_tree_with_hidden_subdir_change(&temp);
+
+    let (_, default_fingerprint) = status_fingerprint(temp.path(), &[]);
+    let (_, fingerprint) = status_fingerprint(temp.path(), &["--verify"]);
+    let (_, always_fingerprint) = status_fingerprint(temp.path(), &["--always-verify"]);
+    assert_ne!(
+        fingerprint, default_fingerprint,
+        "--verify fingerprint should differ from default policy"
+    );
+    assert_ne!(
+        fingerprint, always_fingerprint,
+        "fixture should distinguish --verify from --always-verify"
+    );
+
+    treeward_cmd(temp.path())
+        .arg("init")
+        .arg("--verify")
+        .arg("--fingerprint")
+        .arg(&fingerprint)
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    assert_file_checksum(
+        &temp.path().join(".treeward"),
+        "root.txt",
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+    );
+}
+
+#[test]
+fn init_always_verify_matches_always_verify_fingerprint_and_writes_checksum() {
+    let temp = TempDir::new().unwrap();
+    make_partially_warded_tree_with_hidden_subdir_change(&temp);
+
+    let (_, verify_fingerprint) = status_fingerprint(temp.path(), &["--verify"]);
+    let (_, fingerprint) = status_fingerprint(temp.path(), &["--always-verify"]);
+    assert_ne!(
+        fingerprint, verify_fingerprint,
+        "fixture should distinguish --always-verify from --verify"
+    );
+
+    treeward_cmd(temp.path())
+        .arg("init")
+        .arg("--always-verify")
+        .arg("--fingerprint")
+        .arg(&fingerprint)
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    assert_file_checksum(
+        &temp.path().join(".treeward"),
+        "root.txt",
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+    );
+    assert_file_checksum(
+        &temp.path().join("subdir/.treeward"),
+        "file.txt",
+        "0baf982fcab396fdb1c6d82f8f1eb0d2aea9cdd347fb244cf0b2c748df350069",
+    );
 }
 
 /// Verifies that -v flag enables info-level output showing warded file count.
@@ -150,4 +264,42 @@ fn init_exits_code_255_on_permission_error() {
         Some(255),
         "init should exit with code 255 on permission error"
     );
+}
+
+/// Build a tree whose three checksum policies yield three distinct
+/// fingerprints, so a test can tell which policy `init` actually ran with.
+///
+/// `subdir` is pre-warded and its file is then rewritten with the original
+/// mtime restored: the stale checksum is invisible to metadata comparison and
+/// only found by actually checksumming. `root.txt` is unwarded, which keeps
+/// the default policy's fingerprint distinct as well. Tests assert the
+/// fingerprints differ before relying on them, so a fixture regression fails
+/// loudly instead of weakening the wiring check.
+fn make_partially_warded_tree_with_hidden_subdir_change(temp: &TempDir) {
+    fs::write(temp.path().join("root.txt"), "hello").unwrap();
+
+    let subdir = temp.path().join("subdir");
+    fs::create_dir(&subdir).unwrap();
+    let file_path = subdir.join("file.txt");
+    fs::write(&file_path, "hello").unwrap();
+
+    treeward_cmd(&subdir).arg("init").assert().success();
+
+    let original_mtime =
+        FileTime::from_system_time(fs::metadata(&file_path).unwrap().modified().unwrap());
+    fs::write(&file_path, "olleh").unwrap();
+    set_file_mtime(&file_path, original_mtime).unwrap();
+}
+
+fn assert_file_checksum(ward_path: &std::path::Path, entry_name: &str, expected_sha256: &str) {
+    let ward_content = fs::read_to_string(ward_path).unwrap();
+    let ward: toml::Value = toml::from_str(&ward_content).unwrap();
+    let sha256 = ward
+        .get("entries")
+        .and_then(|entries| entries.get(entry_name))
+        .and_then(|entry| entry.get("sha256"))
+        .and_then(toml::Value::as_str)
+        .expect("file entry should have a sha256");
+
+    assert_eq!(sha256, expected_sha256);
 }
