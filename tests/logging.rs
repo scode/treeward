@@ -172,3 +172,47 @@ fn warn_error_emojis_suppressed_when_not_tty() {
         "stderr should include the error message"
     );
 }
+
+/// Hostile filenames must not be able to inject terminal escapes through stderr.
+///
+/// This pins the user-observable guarantee end to end: no raw control bytes
+/// reach the terminal. It deliberately does not pin the exact escaped
+/// rendering of the name — controls embedded in displayed paths may already
+/// be pre-escaped by the standard library (`Path::display()`) in a different
+/// style than the formatter's own `\u{..}` escapes, and either is fine as
+/// long as nothing raw gets through. The formatter unit test in src/main.rs
+/// pins the exact escaping applied at our own boundary.
+#[cfg(unix)]
+#[test]
+fn status_escapes_control_characters_from_unsupported_file_type_errors() {
+    use nix::sys::stat;
+    use nix::unistd;
+
+    let temp = temp_dir_with_file();
+    treeward_cmd(temp.path()).arg("init").assert().success();
+
+    // C0 (ESC, BEL) plus a C1 control (U+009B, the single-byte CSI) so the
+    // spec's "including C1 controls" claim has end-to-end coverage.
+    let hostile_name = "fifo-\x1b]0;pwned\x07\u{9b}31m";
+    unistd::mkfifo(&temp.path().join(hostile_name), stat::Mode::S_IRWXU).unwrap();
+
+    let output = treeward_cmd(temp.path())
+        .arg("status")
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    // Strict decoding matters: a raw lone C1 byte (e.g. 0x9B) is invalid
+    // UTF-8, and a lossy decode would launder it into U+FFFD, which
+    // `is_control()` does not catch.
+    let stderr = std::str::from_utf8(&output.stderr).expect("stderr must be valid UTF-8");
+
+    assert!(
+        stderr.contains("fifo-"),
+        "stderr did not name the offending file: {stderr:?}"
+    );
+    assert!(
+        !stderr.chars().any(|c| c.is_control() && c != '\n'),
+        "stderr contained raw control characters: {stderr:?}"
+    );
+}

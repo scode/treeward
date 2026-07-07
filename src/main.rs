@@ -28,6 +28,7 @@ use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
 use update::{WardOptions, ward_directory};
+use util::escape_control;
 
 fn checksum_policy_from_flags(always_verify: bool, verify: bool) -> ChecksumPolicy {
     match (always_verify, verify) {
@@ -315,14 +316,63 @@ where
             }
         }
 
-        ctx.format_fields(writer.by_ref(), event)?;
+        // Escape after field formatting so every stderr diagnostic shares the
+        // same terminal-injection boundary. Individual error types and log
+        // sites should not have to know which strings came from the filesystem
+        // or a ward file.
+        let mut fields = String::new();
+        ctx.format_fields(Writer::new(&mut fields), event)?;
+        writer.write_str(&escape_control(&fields))?;
         writeln!(writer)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::follow_up_verify_flag;
+    use super::{EmojiFormatter, follow_up_verify_flag};
+    use std::io;
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt as tracing_fmt;
+    use tracing_subscriber::fmt::MakeWriter;
+    use tracing_subscriber::prelude::*;
+
+    #[derive(Clone)]
+    struct CapturedWriter {
+        bytes: Arc<Mutex<Vec<u8>>>,
+    }
+
+    struct CapturedWriteGuard {
+        bytes: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl io::Write for CapturedWriteGuard {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.bytes.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for CapturedWriter {
+        type Writer = CapturedWriteGuard;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            CapturedWriteGuard {
+                bytes: Arc::clone(&self.bytes),
+            }
+        }
+    }
+
+    struct HostileDisplay;
+
+    impl std::fmt::Display for HostileDisplay {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("hostile \x1b]0;pwned\x07")
+        }
+    }
 
     #[test]
     fn follow_up_hint_uses_verify_when_diff_is_enabled() {
@@ -337,5 +387,34 @@ mod tests {
     #[test]
     fn follow_up_hint_has_no_verify_flag_by_default() {
         assert_eq!(follow_up_verify_flag(false, false, false), "");
+    }
+
+    #[test]
+    fn emoji_formatter_escapes_control_characters_in_event_fields() {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let writer = CapturedWriter {
+            bytes: Arc::clone(&bytes),
+        };
+        let layer = tracing_fmt::layer()
+            .event_format(EmojiFormatter {
+                stderr_is_terminal: false,
+            })
+            .with_writer(writer);
+        let subscriber = tracing_subscriber::registry().with(layer);
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::error!(payload = %HostileDisplay, "diagnostic");
+        });
+
+        let output = bytes.lock().unwrap().clone();
+        let stderr = std::str::from_utf8(&output).expect("formatted event should be UTF-8");
+        assert!(
+            stderr.contains(r"payload=hostile \u{1b}]0;pwned\u{7}"),
+            "stderr did not contain escaped event text: {stderr:?}"
+        );
+        assert!(
+            !output.contains(&0x1b),
+            "formatted event contained raw ESC byte: {stderr:?}"
+        );
     }
 }
