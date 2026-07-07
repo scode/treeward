@@ -5,6 +5,8 @@ use common::{status_output, treeward_cmd};
 use filetime::{FileTime, set_file_mtime};
 use predicates::prelude::*;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 use tempfile::TempDir;
 
 #[test]
@@ -401,8 +403,6 @@ fn status_diff_no_details_for_added_files() {
 #[test]
 #[cfg(unix)]
 fn status_diff_shows_symlink_target_change() {
-    use std::os::unix::fs::symlink;
-
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("target1.txt"), "target1").unwrap();
     fs::write(temp.path().join("target2.txt"), "target2").unwrap();
@@ -428,8 +428,6 @@ fn status_diff_shows_symlink_target_change() {
 #[test]
 #[cfg(unix)]
 fn status_diff_shows_type_change() {
-    use std::os::unix::fs::symlink;
-
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("entry"), "file content").unwrap();
 
