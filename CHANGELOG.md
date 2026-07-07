@@ -5,7 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.1] - 2026-06-12
+## [0.3.2] - 2026-07-07
+
+### Changed
+
+- Lower the supported mtime ceiling to what TOML can store (#123)
+- Reject the reserved .treeward entry name in ward files (#124)
+- Escape control characters in stderr diagnostics (#125)
+
+## [0.3.1] - 2026-06-13
 
 ### Changed
 
@@ -16,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Avoid hanging when a checksummed file is swapped for a FIFO (#118)
 - Fsync parent directory so ward file writes survive crashes (#119)
 - Name the offending file when an mtime is outside the supported range (#120)
+- Release 0.3.1 (#122)
 
 ## [0.3.0] - 2026-04-26
 
@@ -28,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [0.2.0] - 2026-03-07
 
+[0.3.2]: https://github.com/scode/treeward/compare/v0.3.1..v0.3.2
 [0.3.1]: https://github.com/scode/treeward/compare/v0.3.0..v0.3.1
 [0.3.0]: https://github.com/scode/treeward/compare/v0.2.0..v0.3.0
 [0.2.0]: https://github.com/scode/treeward/tree/v0.2.0
