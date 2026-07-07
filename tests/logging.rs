@@ -4,6 +4,8 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use common::treeward_cmd;
 use predicates::prelude::*;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use tempfile::TempDir;
 
 fn temp_dir_with_file() -> TempDir {
@@ -117,8 +119,6 @@ fn help_mentions_rust_log_precedence_for_logging_flags() {
 #[cfg(unix)]
 #[test]
 fn status_permission_error_logs_to_stderr_not_stdout() {
-    use std::os::unix::fs::PermissionsExt;
-
     let temp = TempDir::new().unwrap();
     let protected = temp.path().join("protected");
     fs::create_dir(&protected).unwrap();
@@ -137,8 +137,6 @@ fn status_permission_error_logs_to_stderr_not_stdout() {
 #[cfg(unix)]
 #[test]
 fn warn_error_emojis_suppressed_when_not_tty() {
-    use std::os::unix::fs::PermissionsExt;
-
     let temp = TempDir::new().unwrap();
     let protected = temp.path().join("protected");
     fs::create_dir(&protected).unwrap();
