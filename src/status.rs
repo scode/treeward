@@ -567,11 +567,8 @@ fn compare_entries(
             )?,
             None => {
                 let relative_path = make_relative_path(ctx.tree_root, current_dir, name)?;
-                let old_ward_entry = if ctx.diff_mode == DiffMode::Capture {
-                    Some(ward_entry.clone())
-                } else {
-                    None
-                };
+                let old_ward_entry =
+                    (ctx.diff_mode == DiffMode::Capture).then(|| ward_entry.clone());
                 statuses.push(StatusEntry::Removed {
                     path: relative_path.clone(),
                     old_ward_entry,
@@ -666,12 +663,9 @@ fn check_modification(
 
             // Capture old_ward_entry when diff mode is enabled and the entry differs
             // (either metadata or checksum - for --always-verify detecting silent corruption)
-            let old_ward_entry =
-                if ctx.diff_mode == DiffMode::Capture && (metadata_differs || sha256_differs) {
-                    Some(ward_entry.clone())
-                } else {
-                    None
-                };
+            let old_ward_entry = (ctx.diff_mode == DiffMode::Capture
+                && (metadata_differs || sha256_differs))
+                .then(|| ward_entry.clone());
 
             // Fingerprint should reflect file state at status-time, not just path/status.
             let fingerprint_payload = FingerprintPayload::File {
@@ -722,11 +716,8 @@ fn check_modification(
         }
         (WardEntry::Dir {}, FsEntry::Dir { .. }) => {
             if ctx.mode == StatusMode::All || ctx.purpose == StatusPurpose::WardUpdate {
-                let new_ward_entry = if ctx.purpose == StatusPurpose::WardUpdate {
-                    Some(WardEntry::Dir {})
-                } else {
-                    None
-                };
+                let new_ward_entry =
+                    (ctx.purpose == StatusPurpose::WardUpdate).then_some(WardEntry::Dir {});
                 statuses.push(StatusEntry::Unchanged {
                     path: relative_path,
                     ward_entry: new_ward_entry,
@@ -751,11 +742,8 @@ fn check_modification(
                 };
 
             if ward_target != fs_target {
-                let old_ward_entry = if ctx.diff_mode == DiffMode::Capture {
-                    Some(ward_entry.clone())
-                } else {
-                    None
-                };
+                let old_ward_entry =
+                    (ctx.diff_mode == DiffMode::Capture).then(|| ward_entry.clone());
                 statuses.push(StatusEntry::Modified {
                     path: relative_path.clone(),
                     ward_entry: new_ward_entry,
@@ -783,11 +771,7 @@ fn check_modification(
                 } else {
                     None
                 };
-            let old_ward_entry = if ctx.diff_mode == DiffMode::Capture {
-                Some(ward_entry.clone())
-            } else {
-                None
-            };
+            let old_ward_entry = (ctx.diff_mode == DiffMode::Capture).then(|| ward_entry.clone());
             let fingerprint_payload = current_entry_fingerprint_payload(
                 current_dir,
                 name,
