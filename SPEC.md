@@ -15,8 +15,14 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
   names, symlink targets, or ward-file fields. Control characters (including C1 controls such as the single-byte CSI)
   are rendered as backslash escapes (`\n`, `\t`, `\u{1b}`, ...), and literal backslashes are doubled so escaped output
   is unambiguous; all other Unicode is printed unchanged. This prevents crafted names from injecting terminal escape
-  sequences (OSC/CSI) into the listing. Diagnostic logging (`-v`) and error messages on stderr are NOT covered by this
-  guarantee and may contain raw names.
+  sequences (OSC/CSI) into the listing.
+
+- Diagnostic logging (`-v`) and error messages printed to stderr never emit raw control characters (including C1
+  controls), so crafted names cannot inject terminal escape sequences through diagnostics either. Control characters are
+  rendered in an escaped textual form; the exact rendering is not specified and may differ from the stdout listing's
+  escapes. Command-line usage errors reported while arguments are still being parsed are outside this guarantee: they
+  echo the offending argument verbatim, and the argument came from the invoker rather than from a scanned tree or ward
+  file.
 
 - A child entry that vanishes between listing a directory and inspecting it is a fatal error (concurrent modification);
   it is never silently treated as removed. This includes a directory that disappears between being listed and being
