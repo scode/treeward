@@ -205,6 +205,44 @@ mod tests {
         );
     }
 
+    /// `NotFound` while inspecting a listed child is the vanished-child race from the spec.
+    ///
+    /// The race is fatal and must surface as `EntryVanished`, not as a removal.
+    /// This pins the mapping directly because the race itself cannot be
+    /// reproduced deterministically without adding injection seams.
+    #[test]
+    fn test_child_not_found_returns_entry_vanished() {
+        let path = PathBuf::from("listed-then-gone");
+        let error = std::io::Error::new(std::io::ErrorKind::NotFound, "gone");
+
+        let result = child_error(&path, error);
+
+        assert!(
+            matches!(result, DirListError::EntryVanished(ref p) if p == &path),
+            "expected EntryVanished, got {:?}",
+            result
+        );
+    }
+
+    /// `NotFound` has a special child-inspection meaning, but other child errors keep their identity.
+    ///
+    /// This keeps the concurrent-modification mapping narrow: permission
+    /// failures remain fatal permission failures instead of being swallowed by
+    /// the vanished-child handling.
+    #[test]
+    fn test_child_permission_denied_returns_permission_denied() {
+        let path = PathBuf::from("restricted-child");
+        let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+
+        let result = child_error(&path, error);
+
+        assert!(
+            matches!(result, DirListError::PermissionDenied(ref p) if p == &path),
+            "expected PermissionDenied, got {:?}",
+            result
+        );
+    }
+
     #[test]
     fn test_traverse_nested_directories() {
         let temp_dir = TempDir::new().unwrap();
