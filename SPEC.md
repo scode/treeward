@@ -48,6 +48,14 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
   not support directory fsync (some FUSE and network mounts), and on non-Unix platforms, the rename flush is skipped and
   durability of the rename is best-effort.
 
+- `init`/`update` write ward files one directory at a time and are not atomic as a set. If a write fails partway, the
+  command exits with a fatal error stating how many of the changed ward files were written, and the tree is left
+  partially updated. In that state no written `.treeward` lists a subdirectory whose own `.treeward` is missing or
+  stale, so `status` still reports the unfinished changes at the level the user reviewed them. Re-running `init` or
+  `update` after fixing the cause writes only the remainder. A fingerprint taken before the failed run no longer
+  matches, since the committed ward files removed entries from the pending changeset; `status` must be re-run to obtain
+  a fresh one. A `.treeward` that already matches its new content is never rewritten.
+
 - Entry names and symlink targets that are not valid UTF-8 are not supported: `init`/`status`/`update`/`verify`
   (including `--dry-run`) abort with a fatal error naming the offending entry (for a symlink, the link itself) before
   any `.treeward` file is written. This is a deliberate limitation of the TOML on-disk format, which is UTF-8 only.
