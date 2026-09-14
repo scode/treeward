@@ -12,6 +12,12 @@ use std::path::{Path, PathBuf};
 
 use crate::dir_list::{TREEWARD_FILENAME, is_reserved_name_case_variant};
 
+/// Prefix of the temporary file `save` writes before renaming it into place.
+///
+/// Public within the crate only so tests can pin it; the persisted format
+/// never references it. Scans do not treat the prefix specially, see `save`.
+pub(crate) const TEMP_FILE_PREFIX: &str = ".treeward.tmp-";
+
 #[derive(Debug, thiserror::Error)]
 pub enum WardFileError {
     #[error("IO error: {0}")]
@@ -171,10 +177,12 @@ impl WardFile {
 
     /// Save a WardFile to the filesystem atomically.
     ///
-    /// Writes to a temporary file, fsyncs it, atomically renames it into
-    /// place, then (on Unix) fsyncs the parent directory so the rename is
-    /// durable. The resulting file gets standard umask-derived permissions,
-    /// like any normally created file.
+    /// Writes to a temporary file (`.treeward.tmp-*` in the same directory),
+    /// fsyncs it, atomically renames it into place, then (on Unix) fsyncs the
+    /// parent directory so the rename is durable. The resulting file gets
+    /// standard umask-derived permissions, like any normally created file.
+    /// An interrupted save can leave the temp file behind; it is then an
+    /// ordinary entry as far as scans are concerned and is safe to delete.
     pub fn save(&self, path: &Path) -> Result<(), WardFileError> {
         use std::io::Write;
 
@@ -187,6 +195,13 @@ impl WardFile {
         // unused_mut without this.
         #[cfg_attr(not(unix), allow(unused_mut))]
         let mut builder = tempfile::Builder::new();
+        // A crash between creating the temp file and renaming it leaves it in
+        // the scanned directory, where the next status/verify reports it as an
+        // added file. The distinctive prefix makes such a leftover
+        // self-explanatory. It is deliberately NOT excluded from scans: any
+        // name pattern a scan skipped would be a place to hide files from
+        // verify, so a leftover is reported like anything else.
+        builder.prefix(TEMP_FILE_PREFIX);
         // NamedTempFile defaults to mode 0600 (right for secrets, wrong here):
         // persist() carries that to the final file, so every .treeward would
         // end up owner-only and other users in a group-shared tree would hit
@@ -1065,6 +1080,15 @@ unknown_field = "should_be_rejected"
                 key
             );
         }
+    }
+
+    /// The temp-file prefix is part of the documented behavior (SPEC.md names
+    /// it so users can recognise a leftover from an interrupted save), so a
+    /// change to the constant must be a deliberate spec change too. The scan
+    /// side of the contract is covered by the status integration test.
+    #[test]
+    fn test_temp_file_prefix_matches_spec() {
+        assert_eq!(TEMP_FILE_PREFIX, ".treeward.tmp-");
     }
 
     #[test]
