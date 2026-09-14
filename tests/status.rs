@@ -624,3 +624,23 @@ fn status_accepts_pre_epoch_directory_mtime() {
     set_file_mtime(&dir, FileTime::from_unix_time(-1, 0)).unwrap();
     treeward_cmd(temp.path()).arg("status").assert().code(0);
 }
+
+/// An entry named like `.treeward` but in different case is refused with a
+/// message naming it. On macOS and Windows such a file is the ward file's own
+/// path, so silently tracking it would make every command fail later with a
+/// misleading "corrupt ward file" error, or overwrite the user's file. The
+/// rejection applies on every platform so ward files stay portable.
+#[test]
+#[cfg(unix)]
+fn status_rejects_case_variant_of_reserved_name() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+    fs::write(temp.path().join(".TREEWARD"), "user content").unwrap();
+
+    treeward_cmd(temp.path())
+        .arg("status")
+        .assert()
+        .code(255)
+        .stderr(predicate::str::contains("reserved"))
+        .stderr(predicate::str::contains(".TREEWARD"));
+}

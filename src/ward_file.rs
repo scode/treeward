@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::dir_list::TREEWARD_FILENAME;
+use crate::dir_list::{TREEWARD_FILENAME, is_reserved_name_case_variant};
 
 #[derive(Debug, thiserror::Error)]
 pub enum WardFileError {
@@ -273,9 +273,13 @@ fn sync_dir(_dir: &Path) -> Result<(), WardFileError> {
 /// `.treeward` is reserved for the ward file that `list_directory` excludes.
 /// Accepting `.treeward` would let a corrupted ward file make recursive walks
 /// descend into the ward file itself and fail later with a misleading I/O
-/// error instead of rejecting the ward file at parse time.
+/// error instead of rejecting the ward file at parse time. Case variants of
+/// the reserved name are rejected for the same reason: listing never
+/// produces them, and on a case-insensitive filesystem they name the ward
+/// file itself.
 fn is_valid_entry_name(name: &str) -> bool {
     name != TREEWARD_FILENAME
+        && !is_reserved_name_case_variant(name)
         && !name.contains('\0')
         && Path::new(name).file_name().is_some_and(|part| part == name)
 }
@@ -426,6 +430,29 @@ type = "dir"
         );
 
         assert!(matches!(result, Err(WardFileError::InvalidEntryName(_))));
+    }
+
+    /// A case variant of the reserved name can never come from a listing (it
+    /// is rejected there), so its presence in a ward file is corruption. On a
+    /// case-insensitive filesystem it would also make the walk treat the ward
+    /// file as a tracked entry.
+    #[test]
+    fn test_rejects_case_variant_of_reserved_entry_name() {
+        for name in [".TREEWARD", ".Treeward"] {
+            let result = WardFile::from_toml(&format!(
+                r#"
+[metadata]
+version = 1
+
+[entries."{name}"]
+type = "dir"
+"#
+            ));
+            assert!(
+                matches!(result, Err(WardFileError::InvalidEntryName(_))),
+                "{name} should be rejected"
+            );
+        }
     }
 
     /// A sha256 that is not 64 lowercase hex characters is corruption and must
