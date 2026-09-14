@@ -32,6 +32,14 @@ pub enum DirListError {
     EntryVanished(PathBuf),
     #[error("Permission denied: {0}")]
     PermissionDenied(PathBuf),
+    /// An entry name or symlink target is not valid UTF-8.
+    ///
+    /// The persisted format is TOML, which is UTF-8 only, so such entries can
+    /// never be recorded. Rejecting them at listing time makes the limitation
+    /// surface uniformly across all commands (including dry runs) with the
+    /// offending path named, instead of as an opaque serialization failure
+    /// partway through writing ward files. The path is the entry's own path
+    /// in both cases; for a symlink it is the link, not its target.
     #[error("non-UTF-8 path not supported: {0:?}")]
     NonUtf8Path(PathBuf),
     #[error("unsupported file type (not a regular file, directory, or symlink): {0}")]
@@ -79,6 +87,16 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
 
         let fs_entry = if file_type.is_symlink() {
             let symlink_target = std::fs::read_link(&path).map_err(|e| child_error(&path, e))?;
+            // Ward files are TOML, which cannot represent non-UTF-8 bytes, so a
+            // target that is not valid UTF-8 can never be persisted. Reject it
+            // here, mirroring the filename check above, so every command fails
+            // fast naming the link rather than `init`/`update` dying later inside
+            // serialization with no path — and after some ward files were
+            // already written. Lossy conversion is not an option: distinct
+            // targets would collide once persisted.
+            if symlink_target.to_str().is_none() {
+                return Err(DirListError::NonUtf8Path(path));
+            }
             FsEntry::Symlink { symlink_target }
         } else if file_type.is_dir() {
             let mtime = metadata.modified().map_err(DirListError::Io)?;
@@ -322,6 +340,28 @@ mod tests {
         match result {
             Err(DirListError::PermissionDenied(_)) => {}
             _ => panic!("Expected PermissionDenied error"),
+        }
+    }
+
+    /// A symlink target that is not valid UTF-8 must be rejected at listing
+    /// time, naming the link. Without this check the target would only fail
+    /// much later, during TOML serialization, with an error naming no path.
+    /// The name check and the target check are separate code paths, so this
+    /// test keeps the link's own name valid to exercise the target path only.
+    #[test]
+    #[cfg(unix)]
+    fn test_non_utf8_symlink_target_rejected() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+        let target = std::ffi::OsStr::from_bytes(b"bad\xff");
+        let link = root.join("link");
+        std::os::unix::fs::symlink(target, &link).unwrap();
+
+        match list_directory(root) {
+            Err(DirListError::NonUtf8Path(p)) => assert_eq!(p, link),
+            other => panic!("expected NonUtf8Path naming the link, got {:?}", other),
         }
     }
 

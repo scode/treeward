@@ -48,6 +48,10 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
   not support directory fsync (some FUSE and network mounts), and on non-Unix platforms, the rename flush is skipped and
   durability of the rename is best-effort.
 
+- Entry names and symlink targets that are not valid UTF-8 are not supported: `init`/`status`/`update`/`verify`
+  (including `--dry-run`) abort with a fatal error naming the offending entry (for a symlink, the link itself) before
+  any `.treeward` file is written. This is a deliberate limitation of the TOML on-disk format, which is UTF-8 only.
+
 - Files with modification times before the Unix epoch (pre-1970) or above `i64::MAX` nanoseconds since the epoch
   (~year 2262) are not supported: `init`/`status`/`update`/`verify` abort with a fatal error naming the offending file.
   This is a deliberate limitation of the TOML `mtime_nanos` on-disk format: TOML integers are `i64`.

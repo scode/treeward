@@ -303,3 +303,31 @@ fn assert_file_checksum(ward_path: &std::path::Path, entry_name: &str, expected_
 
     assert_eq!(sha256, expected_sha256);
 }
+
+/// Ward files are TOML and cannot hold a non-UTF-8 symlink target, so `init`
+/// must refuse up front, naming the link, and write nothing. This pins the
+/// fix for a bug where the failure surfaced only during serialization, after
+/// some ward files were already written, with an error naming no path.
+#[test]
+#[cfg(unix)]
+fn init_rejects_non_utf8_symlink_target_without_writing() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+    let sub = temp.path().join("sub");
+    fs::create_dir(&sub).unwrap();
+    std::os::unix::fs::symlink(std::ffi::OsStr::from_bytes(b"bad\xff"), sub.join("link")).unwrap();
+
+    for args in [&["init", "--dry-run"][..], &["init"][..]] {
+        treeward_cmd(temp.path())
+            .args(args)
+            .assert()
+            .code(255)
+            .stderr(predicate::str::contains("non-UTF-8 path"))
+            .stderr(predicate::str::contains("sub/link"));
+    }
+
+    assert!(!temp.path().join(".treeward").exists());
+    assert!(!sub.join(".treeward").exists());
+}
