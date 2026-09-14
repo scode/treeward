@@ -63,6 +63,12 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
   whether or not it resolves), `init` and `update` (including `--allow-init`) abort with a fatal error naming the path
   and leave the entry untouched: they never follow it, read through it, or replace it.
 
+- `init`/`update` write each `.treeward` by first writing a temporary file named `.treeward.tmp-` followed by random
+  characters in the same directory, then renaming it into place. An interrupted run (crash, kill) can leave such a file
+  behind. It is reported by `status`/`verify` as an ordinary added entry and is never silently excluded from scans, so
+  nothing can be hidden from `verify` under that name. Deleting a leftover is safe; the next `init`/`update` creates a
+  fresh one.
+
 - `init`/`update` write ward files one directory at a time and are not atomic as a set. If a write fails partway, the
   command exits with a fatal error stating how many of the changed ward files were written, and the tree is left
   partially updated. In that state no written `.treeward` lists a subdirectory whose own `.treeward` is missing or

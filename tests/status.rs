@@ -644,3 +644,26 @@ fn status_rejects_case_variant_of_reserved_name() {
         .stderr(predicate::str::contains("reserved"))
         .stderr(predicate::str::contains(".TREEWARD"));
 }
+
+/// A temp file left behind by an interrupted save must be reported as an
+/// ordinary added entry, never silently skipped: any name a scan ignored
+/// would be a place to hide files from `verify`. The prefix is pinned here
+/// because the SPEC names it so users can recognise a leftover.
+#[test]
+fn status_reports_leftover_save_temp_file_as_added() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+    treeward_cmd(temp.path()).arg("init").assert().success();
+    fs::write(temp.path().join(".treeward.tmp-leftover"), "partial").unwrap();
+
+    treeward_cmd(temp.path())
+        .arg("status")
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("A  .treeward.tmp-leftover\n"));
+    treeward_cmd(temp.path())
+        .arg("verify")
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("A  .treeward.tmp-leftover\n"));
+}
