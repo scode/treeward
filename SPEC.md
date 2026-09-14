@@ -33,6 +33,13 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
   records content that differs from what the fingerprint it validated was computed over. A command that never reads the
   file (for example `status` under the default metadata-only policy) is unaffected and reports from the listing alone.
 
+- The fingerprint printed by `status` and validated by `init --fingerprint`/`update --fingerprint` binds exactly what
+  the chosen checksum policy observes for each changed entry: its path and status class, plus mtime and size for files
+  and the target for symlinks, and the content checksum only when the policy read the file (`--verify` for
+  metadata-differing files, `--always-verify` for all). Under the default policy an edit that preserves a file's mtime
+  and size does not change the fingerprint. The fingerprint is only meaningful when `status` and `init`/`update` run
+  under the same policy; with different `--verify`/`--always-verify` flags the two never match.
+
 - A `.treeward` file whose `sha256` fields are not exactly 64 lowercase hex characters is rejected as corrupt with a
   fatal error at load time.
 
