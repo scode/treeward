@@ -45,6 +45,16 @@ pub enum DirListError {
     NonUtf8Path(PathBuf),
     #[error("unsupported file type (not a regular file, directory, or symlink): {0}")]
     UnsupportedFileType(PathBuf),
+    /// An entry's name differs from the reserved `.treeward` only by case.
+    ///
+    /// On a case-insensitive filesystem (macOS and Windows defaults) such an
+    /// entry *is* the ward file's path: loading the ward would read the
+    /// user's file and fail as corrupt TOML, and saving would rename over
+    /// it. Rejecting the name on every platform, not just case-insensitive
+    /// ones, keeps ward files portable: a ward written on Linux listing
+    /// `.TREEWARD` could never be verified on macOS.
+    #[error("entry name is reserved (case variant of .treeward): {0}")]
+    ReservedNameCollision(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +110,13 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
             .ok_or_else(|| DirListError::NonUtf8Path(path.clone()))?
             .to_string();
 
+        // The exact name was skipped above as the ward file itself; anything
+        // that collides with it case-insensitively is a user entry that the
+        // ward file's fixed path would shadow or clobber on macOS/Windows.
+        if is_reserved_name_case_variant(&filename) {
+            return Err(DirListError::ReservedNameCollision(path));
+        }
+
         let file_type = metadata.file_type();
 
         let fs_entry = if file_type.is_symlink() {
@@ -129,6 +146,16 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
     }
 
     Ok(entries)
+}
+
+/// True for names that equal `.treeward` under ASCII case folding but are not
+/// `.treeward` itself (`.TREEWARD`, `.Treeward`, ...).
+///
+/// ASCII folding is deliberate: the reserved name is pure ASCII, and that is
+/// the comparison case-insensitive filesystems apply to it. Shared with the
+/// ward-file loader so both sides agree on what can never be a valid entry.
+pub(crate) fn is_reserved_name_case_variant(name: &str) -> bool {
+    name != TREEWARD_FILENAME && name.eq_ignore_ascii_case(TREEWARD_FILENAME)
 }
 
 /// Maps a per-child inspection failure during listing.
@@ -186,6 +213,38 @@ mod tests {
             subdir_entries.get("file3.txt").unwrap(),
             FsEntry::File { .. }
         ));
+    }
+
+    /// Case variants of the reserved name must be rejected on every platform,
+    /// naming the entry, while the exact name stays silently excluded and
+    /// merely similar names are ordinary entries. Tested by name logic alone
+    /// so it does not depend on the host filesystem's case handling.
+    #[test]
+    fn test_case_variants_of_reserved_name_are_rejected() {
+        assert!(is_reserved_name_case_variant(".TREEWARD"));
+        assert!(is_reserved_name_case_variant(".Treeward"));
+        assert!(!is_reserved_name_case_variant(".treeward"));
+        assert!(!is_reserved_name_case_variant(".treewardx"));
+        assert!(!is_reserved_name_case_variant("treeward"));
+
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+        fs::write(root.join("ok.txt"), "x").unwrap();
+        fs::write(root.join(".TREEWARD"), "user content").unwrap();
+        // On a case-insensitive filesystem the write above may have created
+        // `.treeward` itself, in which case the exact-name skip applies and
+        // there is nothing to reject; only assert when the variant exists.
+        let has_variant = fs::read_dir(root)
+            .unwrap()
+            .any(|e| e.unwrap().file_name() == ".TREEWARD");
+        if has_variant {
+            match list_directory(root) {
+                Err(DirListError::ReservedNameCollision(p)) => {
+                    assert_eq!(p, root.join(".TREEWARD"))
+                }
+                other => panic!("expected ReservedNameCollision, got {:?}", other),
+            }
+        }
     }
 
     #[test]

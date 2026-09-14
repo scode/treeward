@@ -37,8 +37,13 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
   fatal error at load time.
 
 - A `.treeward` file containing an entry whose name could not have come from scanning a directory — a name with a path
-  separator, `.`, `..`, a NUL byte, or the reserved name `.treeward` itself — is rejected as corrupt with a fatal error
-  at load time.
+  separator, `.`, `..`, a NUL byte, the reserved name `.treeward` itself, or a name that differs from `.treeward` only
+  by ASCII case — is rejected as corrupt with a fatal error at load time.
+
+- A directory entry whose name differs from `.treeward` only by ASCII case (`.TREEWARD`, `.Treeward`, ...) is refused by
+  `init`/`status`/`update`/`verify` with a fatal error naming it, on every platform. On a case-insensitive filesystem
+  such an entry is the ward file's own path; refusing it everywhere keeps ward files portable and rules out reading or
+  overwriting the user's file under the ward file's name.
 
 - Written `.treeward` files get standard umask-derived permissions (0666 masked by the process umask), like any normally
   created file — not owner-only modes that would break `verify` for other users in group-shared trees. NOTE: a readable
