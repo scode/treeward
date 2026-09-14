@@ -574,3 +574,26 @@ fn status_exits_code_255_on_permission_error() {
         "status should exit with code 255 on permission error"
     );
 }
+
+/// `status` must reject a non-UTF-8 symlink target the same way `init` and
+/// `update` do, rather than listing the link as added with a fingerprint for
+/// a state that can never be recorded.
+#[test]
+#[cfg(unix)]
+fn status_rejects_non_utf8_symlink_target() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let temp = TempDir::new().unwrap();
+    symlink(
+        std::ffi::OsStr::from_bytes(b"bad\xff"),
+        temp.path().join("link"),
+    )
+    .unwrap();
+
+    treeward_cmd(temp.path())
+        .arg("status")
+        .assert()
+        .code(255)
+        .stderr(predicate::str::contains("non-UTF-8 path"))
+        .stderr(predicate::str::contains("link"));
+}

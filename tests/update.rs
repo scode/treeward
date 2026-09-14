@@ -447,3 +447,34 @@ fn update_exits_code_255_on_permission_error() {
         "update should exit with code 255 on permission error"
     );
 }
+
+/// A non-UTF-8 symlink target cannot be persisted, so `update` must fail fast
+/// naming the link and leave every ward file untouched, both for a dry run
+/// and for a real run. Previously a dry run passed while the real run failed
+/// partway through writing, so the dry run could not predict the outcome.
+#[test]
+#[cfg(unix)]
+fn update_rejects_non_utf8_symlink_target_without_writing() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+    treeward_cmd(temp.path()).arg("init").assert().success();
+    let before = fs::read(temp.path().join(".treeward")).unwrap();
+
+    let sub = temp.path().join("sub");
+    fs::create_dir(&sub).unwrap();
+    std::os::unix::fs::symlink(std::ffi::OsStr::from_bytes(b"bad\xff"), sub.join("link")).unwrap();
+
+    for args in [&["update", "--dry-run"][..], &["update"][..]] {
+        treeward_cmd(temp.path())
+            .args(args)
+            .assert()
+            .code(255)
+            .stderr(predicate::str::contains("non-UTF-8 path"))
+            .stderr(predicate::str::contains("sub/link"));
+    }
+
+    assert_eq!(fs::read(temp.path().join(".treeward")).unwrap(), before);
+    assert!(!sub.join(".treeward").exists());
+}
