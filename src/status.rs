@@ -499,15 +499,45 @@ fn mtime_to_nanos(mtime: &std::time::SystemTime, path: &Path) -> Result<u64, Sta
     Ok(nanos as u64)
 }
 
+/// Checksums a file that was just listed, refusing if it no longer matches
+/// what the listing saw.
+///
+/// `checksum_file` guards only its own read window (mtime before versus after
+/// reading). The window between listing a directory and opening one of its
+/// files is a second place an edit can land unnoticed, and it matters more
+/// than it looks: the fingerprint is built from the listing-time metadata
+/// while the ward entry is built from the checksum, so an edit in that window
+/// would be recorded by `update` yet leave the fingerprint matching the one
+/// `status` handed the user. Under the default metadata-only policy nothing
+/// else in the fingerprint would catch it. Comparing the checksum's mtime and
+/// size against the listing's closes the gap with the same
+/// concurrent-modification policy the read window already has: abort, no
+/// retry. The listing's values come from `lstat` on the path and the
+/// checksum's from `fstat` on the open file, but both report the same inode
+/// fields at the same precision, so a mismatch is a real change.
+fn checksum_listed_file(
+    path: &Path,
+    listed_mtime: &std::time::SystemTime,
+    listed_size: u64,
+) -> Result<crate::checksum::FileChecksum, StatusError> {
+    let checksum = checksum_file(path)?;
+    if checksum.mtime != *listed_mtime || checksum.size != listed_size {
+        return Err(StatusError::Checksum(
+            ChecksumError::ConcurrentModification(path.to_path_buf()),
+        ));
+    }
+    Ok(checksum)
+}
+
 fn build_ward_entry_from_fs(
     dir: &Path,
     name: &str,
     fs_entry: &FsEntry,
 ) -> Result<WardEntry, StatusError> {
     match fs_entry {
-        FsEntry::File { .. } => {
+        FsEntry::File { mtime, size } => {
             let path = dir.join(name);
-            let checksum = checksum_file(&path)?;
+            let checksum = checksum_listed_file(&path, mtime, *size)?;
 
             Ok(WardEntry::File {
                 sha256: checksum.sha256,
@@ -644,7 +674,7 @@ fn check_modification(
                 need_checksum_for_status || need_checksum_for_ward || need_checksum_for_diff;
 
             let (sha256_differs, new_checksum) = if need_checksum {
-                let checksum = checksum_file(&absolute_path)?;
+                let checksum = checksum_listed_file(&absolute_path, fs_mtime, *fs_size)?;
                 (checksum.sha256 != *ward_sha, Some(checksum))
             } else {
                 (false, None)
@@ -854,7 +884,9 @@ fn current_entry_fingerprint_payload(
                     sha256: ward_sha, ..
                 }),
             ) => Some(ward_sha.clone()),
-            (FsEntry::File { .. }, _) => Some(checksum_file(&path)?.sha256),
+            (FsEntry::File { mtime, size }, _) => {
+                Some(checksum_listed_file(&path, mtime, *size)?.sha256)
+            }
             _ => None,
         }
     } else {

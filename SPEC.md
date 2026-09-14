@@ -28,6 +28,11 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
   it is never silently treated as removed. This includes a directory that disappears between being listed and being
   walked. A directory that was already absent when its parent was listed is reported as removed by its parent.
 
+- A file whose size or modification time changes between the listing of its directory and the moment it is checksummed
+  is likewise a fatal concurrent-modification error, in every command that checksums it. In particular, `update` never
+  records content that differs from what the fingerprint it validated was computed over. A command that never reads the
+  file (for example `status` under the default metadata-only policy) is unaffected and reports from the listing alone.
+
 - A `.treeward` file whose `sha256` fields are not exactly 64 lowercase hex characters is rejected as corrupt with a
   fatal error at load time.
 
