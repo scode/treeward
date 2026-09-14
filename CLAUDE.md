@@ -66,6 +66,11 @@ used by git-cliff for changelog generation.
 - CLI interface or behavior changes must be `feat`, `fix`, or `perf` (use `!` when breaking), not `refactor`.
 - Every PR body must contain exactly one of `changelog: include` or `changelog: skip`. This is enforced by CI.
 
+## Open Work (.agents/TODO.md)
+
+`.agents/TODO.md` lists known but unscheduled work, grouped into buckets, with pointers to where the context lives.
+Check it when a task touches an area it mentions, and add items there rather than leaving TODO comments in code.
+
 ## Releasing
 
 When the user asks to make or cut a release, follow the Releasing section of `CONTRIBUTING.md`.
