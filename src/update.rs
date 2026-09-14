@@ -33,6 +33,54 @@ pub enum WardError {
         "Fingerprint mismatch: expected {expected}, got {actual}. Ensure --verify/--always-verify flags match between status and init/update commands."
     )]
     FingerprintMismatch { expected: String, actual: String },
+    /// A ward file write failed during the write phase, possibly after other
+    /// ward files in the same run were already committed.
+    ///
+    /// Every write-phase failure takes this variant, including one on the very
+    /// first file (`written == 0`), so the user always learns how far the run
+    /// got. Ward files are written one directory at a time with no journal or
+    /// rollback, so a partially updated tree is reachable by design. Two
+    /// guarantees still hold and are what make re-running a safe recovery:
+    /// every written ward file is individually complete (each write is
+    /// temp-file-plus-rename), and ward files are written deepest-first, so no
+    /// committed ward vouches for a subdirectory whose own ward is stale or
+    /// missing. The unwritten ancestors therefore still report the pending
+    /// changes at the level the user reviewed them.
+    ///
+    /// `written` counts ward files committed before the failure; `total` is
+    /// how many needed writing in this run. Re-running after fixing the cause
+    /// writes only the remainder. A fingerprint taken before the failed run no
+    /// longer matches, because the committed wards shrank the pending
+    /// changeset; the user has to take a fresh one from `status`.
+    #[error(
+        "Ward file error: {source}. Wrote {written} of {total} changed ward files before failing. Those already \
+         written are complete, and no directory's ward file was written before its subdirectories'. Fix the cause \
+         and re-run to write the rest; a fingerprint from before this failure no longer matches, so re-run status \
+         first if you use --fingerprint."
+    )]
+    PartialWrite {
+        written: usize,
+        total: usize,
+        source: WardFileError,
+    },
+}
+
+/// Orders pending ward writes so that no directory's ward file is written
+/// before those of its descendants.
+///
+/// The only cross-file reference in the on-disk format points downward: a
+/// parent's `Dir` entry asserts that the child directory is warded. Writing
+/// deepest-first keeps that assertion true at every point during the write
+/// phase, so a failure part way through never leaves a committed ward that
+/// vouches for a stale or missing child ward. Ties at equal depth are broken
+/// by path for deterministic output.
+fn order_deepest_first(pending: &mut [(PathBuf, &WardFile)]) {
+    pending.sort_by(|(a, _), (b, _)| {
+        b.components()
+            .count()
+            .cmp(&a.components().count())
+            .then_with(|| a.cmp(b))
+    });
 }
 
 pub struct WardOptions {
@@ -96,6 +144,13 @@ pub struct WardResult {
 /// - If `options.dry_run`, computes what would be updated but writes no files
 /// - Returns what would have been updated in `ward_files_updated`
 ///
+/// **Failure partway through writing:**
+/// - The write phase is not atomic across directories. Each ward file is
+///   written atomically, deepest directories first, and the first failure
+///   aborts with `WardError::PartialWrite` reporting how far it got.
+/// - Ward files already written stay written; the unwritten ancestors still
+///   report the pending changes. Re-running completes the update.
+///
 /// # Returns
 ///
 /// * `files_warded` - Number of files that required checksumming for ward entries (added,
@@ -146,19 +201,49 @@ pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, W
         });
     }
 
-    // Write ward files - only changed ones.
-    let mut ward_files_updated = Vec::new();
+    // Decide which ward files need writing before writing any of them, so the
+    // write phase knows the total up front and can report exactly how far it
+    // got if it fails partway.
+    let mut pending: Vec<(PathBuf, &WardFile)> = Vec::new();
     for (dir_path, ward_file) in &ward_files {
         let ward_path = dir_path.join(".treeward");
         let existing = WardFile::load_if_exists(&ward_path)?;
-
         if existing.as_ref() != Some(ward_file) {
-            if !options.dry_run {
-                ward_file.save(&ward_path)?;
-            }
-            ward_files_updated.push(ward_path.strip_prefix(&root)?.to_path_buf());
+            pending.push((ward_path, ward_file));
         }
     }
+    order_deepest_first(&mut pending);
+
+    // Write phase. The set is not atomic (each file is, via temp+rename), so a
+    // failure here leaves a partially updated tree by design; see
+    // `WardError::PartialWrite` for the guarantees that still hold.
+    let total = pending.len();
+    if !options.dry_run {
+        for (written, (ward_path, ward_file)) in pending.iter().enumerate() {
+            // `written` can undercount by one: `save` reports failure if the
+            // post-rename directory fsync fails, even though the rename itself
+            // landed. That only makes the count conservative; a re-run finds
+            // that ward already matching and skips it.
+            if let Err(source) = ward_file.save(ward_path) {
+                return Err(WardError::PartialWrite {
+                    written,
+                    total,
+                    source,
+                });
+            }
+        }
+    }
+
+    // Report in directory order regardless of write order: the deepest-first
+    // order is a recovery property, not something a reader of the log needs to
+    // see. Sorting by the containing directory (not the `.treeward` path)
+    // reproduces the order the original per-directory map iterated in, so the
+    // `-v` listing is unchanged.
+    let mut ward_files_updated = pending
+        .iter()
+        .map(|(ward_path, _)| ward_path.strip_prefix(&root).map(Path::to_path_buf))
+        .collect::<Result<Vec<_>, _>>()?;
+    ward_files_updated.sort_by(|a, b| a.parent().cmp(&b.parent()));
 
     // Count files that were checksummed for the ward file. This includes Added, Modified,
     // and PossiblyModified (which are checksummed for ward building even though the status
@@ -905,10 +990,16 @@ mod tests {
         perms.set_mode(0o755);
         fs::set_permissions(root, perms).unwrap();
 
-        assert!(result.is_err());
         match result {
-            Err(WardError::WardFile(crate::ward_file::WardFileError::PermissionDenied(_))) => {}
-            other => panic!("Expected WardFile(PermissionDenied) error, got {:?}", other),
+            Err(WardError::PartialWrite {
+                written: 0,
+                total: 1,
+                source: crate::ward_file::WardFileError::PermissionDenied(_),
+            }) => {}
+            other => panic!(
+                "expected PartialWrite(0 of 1) wrapping PermissionDenied, got {:?}",
+                other
+            ),
         }
 
         assert!(!root.join(".treeward").exists());
@@ -951,21 +1042,144 @@ mod tests {
             checksum_policy: ChecksumPolicy::Never,
         };
 
+        let root_ward_before = fs::read(root.join(".treeward")).unwrap();
         let result = ward_directory(root, options);
 
         perms.set_mode(0o755);
         fs::set_permissions(root.join("newsubdir"), perms).unwrap();
 
-        assert!(result.is_err());
-        assert!(
-            matches!(
-                result,
-                Err(WardError::WardFile(
-                    crate::ward_file::WardFileError::PermissionDenied(_)
-                ))
+        // The child write fails first (deepest-first order), so nothing has
+        // been written yet: the failure is reported as 0 of 2 and the root
+        // ward must not have advanced to reference a subdirectory whose own
+        // ward was never created.
+        match result {
+            Err(WardError::PartialWrite {
+                written,
+                total,
+                source: crate::ward_file::WardFileError::PermissionDenied(_),
+            }) => {
+                assert_eq!((written, total), (0, 2));
+            }
+            other => panic!(
+                "expected PartialWrite wrapping PermissionDenied, got {:?}",
+                other
             ),
-            "Expected WardFile(PermissionDenied) error, got {:?}",
-            result
+        }
+        assert_eq!(fs::read(root.join(".treeward")).unwrap(), root_ward_before);
+        assert!(!root.join("newsubdir/.treeward").exists());
+    }
+
+    /// The write order must put every directory after all of its descendants
+    /// so a mid-run failure never leaves a committed parent vouching for a
+    /// stale child. Equal depths sort by path for determinism. Checked on the
+    /// pure ordering helper so the test does not depend on provoking a real
+    /// write failure at each level.
+    #[test]
+    fn test_order_deepest_first() {
+        let ward = WardFile::new(std::collections::BTreeMap::new());
+        let mk = |p: &str| (PathBuf::from(p), &ward);
+        let mut pending = vec![
+            mk("/r/.treeward"),
+            mk("/r/a/.treeward"),
+            mk("/r/b/x/.treeward"),
+            mk("/r/b/.treeward"),
+            mk("/r/a/y/z/.treeward"),
+            mk("/r/a/y/.treeward"),
+        ];
+
+        order_deepest_first(&mut pending);
+
+        let order: Vec<&str> = pending.iter().map(|(p, _)| p.to_str().unwrap()).collect();
+        assert_eq!(
+            order,
+            [
+                "/r/a/y/z/.treeward",
+                "/r/a/y/.treeward",
+                "/r/b/x/.treeward",
+                "/r/a/.treeward",
+                "/r/b/.treeward",
+                "/r/.treeward",
+            ]
+        );
+
+        // Property form of the same guarantee, independent of the exact list:
+        // nothing written after `p` may live inside `p`'s directory. (An
+        // earlier version of this loop looked at entries written *before* `p`
+        // and was tautologically true; it passed on a fully reversed order.)
+        for (i, (p, _)) in pending.iter().enumerate() {
+            let dir = p.parent().unwrap();
+            for (q, _) in &pending[i + 1..] {
+                assert!(
+                    !q.starts_with(dir),
+                    "{} was written before its descendant {}",
+                    p.display(),
+                    q.display()
+                );
+            }
+        }
+    }
+
+    /// When the root write fails but a subdirectory's succeeds, the failure
+    /// must report the partial progress and leave the subdirectory's ward
+    /// committed. This is the case the deepest-first order is designed for:
+    /// the root ward is stale, so the new subdirectory still shows up as
+    /// pending at the root level and a re-run finishes the job.
+    #[test]
+    #[cfg(unix)]
+    fn test_ward_write_root_failure_leaves_children_committed() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        fs::write(root.join("file1.txt"), "content1").unwrap();
+        fs::create_dir(root.join("sub")).unwrap();
+        fs::write(root.join("sub/old.txt"), "old").unwrap();
+
+        let options = |init: bool| WardOptions {
+            init,
+            allow_init: false,
+            fingerprint: None,
+            dry_run: false,
+            checksum_policy: ChecksumPolicy::Never,
+        };
+        ward_directory(root, options(true)).unwrap();
+
+        // Change both levels so both ward files need writing, then make only
+        // the root unwritable.
+        fs::write(root.join("file_new.txt"), "new").unwrap();
+        fs::write(root.join("sub/new.txt"), "new").unwrap();
+        let root_ward_before = fs::read(root.join(".treeward")).unwrap();
+        let sub_ward_before = fs::read(root.join("sub/.treeward")).unwrap();
+
+        let mut perms = fs::metadata(root).unwrap().permissions();
+        perms.set_mode(0o555);
+        fs::set_permissions(root, perms.clone()).unwrap();
+
+        let result = ward_directory(root, options(false));
+
+        perms.set_mode(0o755);
+        fs::set_permissions(root, perms).unwrap();
+
+        match result {
+            Err(WardError::PartialWrite { written, total, .. }) => {
+                assert_eq!((written, total), (1, 2));
+            }
+            other => panic!("expected PartialWrite, got {:?}", other),
+        }
+        assert_eq!(fs::read(root.join(".treeward")).unwrap(), root_ward_before);
+        assert_ne!(
+            fs::read(root.join("sub/.treeward")).unwrap(),
+            sub_ward_before
+        );
+
+        // Re-running writes only the remainder and converges.
+        let healed = ward_directory(root, options(false)).unwrap();
+        assert_eq!(healed.ward_files_updated, vec![PathBuf::from(".treeward")]);
+        assert!(
+            ward_directory(root, options(false))
+                .unwrap()
+                .ward_files_updated
+                .is_empty()
         );
     }
 }

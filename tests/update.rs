@@ -478,3 +478,101 @@ fn update_rejects_non_utf8_symlink_target_without_writing() {
     assert_eq!(fs::read(temp.path().join(".treeward")).unwrap(), before);
     assert!(!sub.join(".treeward").exists());
 }
+
+/// A ward write that fails partway must tell the user the tree is partially
+/// updated and that re-running finishes the job, and the on-disk state must
+/// match that promise: the root ward is untouched (so `status` still reports
+/// the new subdirectory at the level the user reviewed), and a re-run after
+/// fixing the cause converges to a clean tree.
+#[test]
+#[cfg(unix)]
+fn update_partial_failure_is_reported_and_recoverable() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+    treeward_cmd(temp.path()).arg("init").assert().success();
+    let root_ward_before = fs::read(temp.path().join(".treeward")).unwrap();
+
+    let sub = temp.path().join("newsubdir");
+    fs::create_dir(&sub).unwrap();
+    fs::write(sub.join("file2.txt"), "world").unwrap();
+    let mut perms = fs::metadata(&sub).unwrap().permissions();
+    perms.set_mode(0o555);
+    fs::set_permissions(&sub, perms.clone()).unwrap();
+
+    treeward_cmd(temp.path())
+        .arg("update")
+        .assert()
+        .code(255)
+        .stderr(predicate::str::contains("Permission denied"))
+        .stderr(predicate::str::contains("Wrote 0 of 2 changed ward files"))
+        .stderr(predicate::str::contains("re-run to write the rest"));
+
+    assert_eq!(
+        fs::read(temp.path().join(".treeward")).unwrap(),
+        root_ward_before
+    );
+    assert!(!sub.join(".treeward").exists());
+
+    // The pending change is still visible where the user reviewed it: as the
+    // added directory, not as an orphaned file inside an already-tracked one.
+    let output = status_output(temp.path(), &[]);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("A  newsubdir\n"), "stdout was:\n{}", stdout);
+
+    perms.set_mode(0o755);
+    fs::set_permissions(&sub, perms).unwrap();
+    treeward_cmd(temp.path()).arg("update").assert().success();
+    treeward_cmd(temp.path()).arg("status").assert().code(0);
+}
+
+/// After a partial failure the committed ward files shrink the pending
+/// changeset, so a fingerprint from before the failed run must be rejected and
+/// a fresh one from `status` must be accepted. Pins the recovery advice in the
+/// error message and in SPEC.md: users of `--fingerprint` re-run `status`, not
+/// just the failed command. Uses a root-level failure so that a child ward is
+/// actually committed before the error.
+#[test]
+#[cfg(unix)]
+fn update_partial_failure_invalidates_prior_fingerprint() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+    fs::create_dir(temp.path().join("sub")).unwrap();
+    fs::write(temp.path().join("sub/old.txt"), "old").unwrap();
+    treeward_cmd(temp.path()).arg("init").assert().success();
+
+    fs::write(temp.path().join("new.txt"), "new").unwrap();
+    fs::write(temp.path().join("sub/new.txt"), "new").unwrap();
+    let (_, stale_fingerprint) = status_fingerprint(temp.path(), &[]);
+
+    let mut perms = fs::metadata(temp.path()).unwrap().permissions();
+    perms.set_mode(0o555);
+    fs::set_permissions(temp.path(), perms.clone()).unwrap();
+    let failed = treeward_cmd(temp.path())
+        .args(["update", "--fingerprint", &stale_fingerprint])
+        .output()
+        .unwrap();
+    perms.set_mode(0o755);
+    fs::set_permissions(temp.path(), perms).unwrap();
+
+    assert_eq!(failed.status.code(), Some(255));
+    let stderr = String::from_utf8(failed.stderr).unwrap();
+    assert!(
+        stderr.contains("Wrote 1 of 2 changed ward files"),
+        "stderr was:\n{}",
+        stderr
+    );
+
+    treeward_cmd(temp.path())
+        .args(["update", "--fingerprint", &stale_fingerprint])
+        .assert()
+        .code(255)
+        .stderr(predicate::str::contains("Fingerprint mismatch"));
+
+    let (_, fresh_fingerprint) = status_fingerprint(temp.path(), &[]);
+    assert_ne!(fresh_fingerprint, stale_fingerprint);
+    treeward_cmd(temp.path())
+        .args(["update", "--fingerprint", &fresh_fingerprint])
+        .assert()
+        .success();
+    treeward_cmd(temp.path()).arg("status").assert().code(0);
+}
