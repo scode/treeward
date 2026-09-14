@@ -52,6 +52,7 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
   (including `--dry-run`) abort with a fatal error naming the offending entry (for a symlink, the link itself) before
   any `.treeward` file is written. This is a deliberate limitation of the TOML on-disk format, which is UTF-8 only.
 
-- Files with modification times before the Unix epoch (pre-1970) or above `i64::MAX` nanoseconds since the epoch
+- Regular files with modification times before the Unix epoch (pre-1970) or above `i64::MAX` nanoseconds since the epoch
   (~year 2262) are not supported: `init`/`status`/`update`/`verify` abort with a fatal error naming the offending file.
-  This is a deliberate limitation of the TOML `mtime_nanos` on-disk format: TOML integers are `i64`.
+  This is a deliberate limitation of the TOML `mtime_nanos` on-disk format: TOML integers are `i64`. Directory and
+  symlink modification times are never recorded or examined, so out-of-range values on those are not an error.

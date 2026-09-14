@@ -597,3 +597,30 @@ fn status_rejects_non_utf8_symlink_target() {
         .stderr(predicate::str::contains("non-UTF-8 path"))
         .stderr(predicate::str::contains("link"));
 }
+
+/// A directory with a pre-epoch mtime must not abort any command. Directory
+/// mtimes are never recorded, so the range limitation documented for regular
+/// files does not apply; before this was pinned, an untracked directory with
+/// an old mtime made `status` exit 255 while the same tracked directory passed.
+#[test]
+fn status_accepts_pre_epoch_directory_mtime() {
+    let temp = TempDir::new().unwrap();
+    let dir = temp.path().join("old_dir");
+    fs::create_dir(&dir).unwrap();
+    set_file_mtime(&dir, FileTime::from_unix_time(-1, 0)).unwrap();
+
+    // Untracked: reported as added, exit 1 (changes found).
+    treeward_cmd(temp.path())
+        .arg("status")
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("old_dir"));
+
+    // Tracked: init must also succeed, and status is then clean. Writing
+    // old_dir/.treeward bumps the directory's mtime, so re-set it before the
+    // final status to make sure the tracked path really sees a pre-epoch value.
+    set_file_mtime(&dir, FileTime::from_unix_time(-1, 0)).unwrap();
+    treeward_cmd(temp.path()).arg("init").assert().success();
+    set_file_mtime(&dir, FileTime::from_unix_time(-1, 0)).unwrap();
+    treeward_cmd(temp.path()).arg("status").assert().code(0);
+}

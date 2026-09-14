@@ -269,7 +269,14 @@ enum FingerprintPayload {
         sha256: Option<String>,
     },
     /// Present for Added directories and type changes to directories.
-    Dir { mtime_nanos: u64 },
+    ///
+    /// Carries no state beyond the variant tag: a directory's reviewed
+    /// snapshot is fully described by its path and status class, since its
+    /// children get their own fingerprint records. Hashing the directory
+    /// mtime here would only make the fingerprint flap on a child created and
+    /// deleted within the review window, and it forced directory mtimes
+    /// through the range check meant for persisted file timestamps.
+    Dir,
     /// Present for Added/Modified symlinks and type changes to symlinks.
     Symlink { symlink_target: PathBuf },
     /// Present for Removed entries (captures prior ward state).
@@ -438,7 +445,7 @@ fn walk_directory(
     )?;
 
     for (name, entry) in &fs_entries {
-        if matches!(entry, FsEntry::Dir { .. }) {
+        if matches!(entry, FsEntry::Dir) {
             let child_path = current_dir.join(name);
             walk_directory(
                 ctx,
@@ -508,7 +515,7 @@ fn build_ward_entry_from_fs(
                 size: checksum.size,
             })
         }
-        FsEntry::Dir { .. } => Ok(WardEntry::Dir {}),
+        FsEntry::Dir => Ok(WardEntry::Dir {}),
         FsEntry::Symlink { symlink_target, .. } => Ok(WardEntry::Symlink {
             symlink_target: symlink_target.clone(),
         }),
@@ -714,7 +721,7 @@ fn check_modification(
                 });
             }
         }
-        (WardEntry::Dir {}, FsEntry::Dir { .. }) => {
+        (WardEntry::Dir {}, FsEntry::Dir) => {
             if ctx.mode == StatusMode::All || ctx.purpose == StatusPurpose::WardUpdate {
                 let new_ward_entry =
                     (ctx.purpose == StatusPurpose::WardUpdate).then_some(WardEntry::Dir {});
@@ -868,9 +875,7 @@ fn fingerprint_payload_from_fs_entry(
             size: *size,
             sha256: file_sha256,
         }),
-        FsEntry::Dir { mtime } => Ok(FingerprintPayload::Dir {
-            mtime_nanos: mtime_to_nanos(mtime, path)?,
-        }),
+        FsEntry::Dir => Ok(FingerprintPayload::Dir),
         FsEntry::Symlink { symlink_target } => Ok(FingerprintPayload::Symlink {
             symlink_target: symlink_target.clone(),
         }),
@@ -913,9 +918,8 @@ fn hash_fingerprint_payload(hasher: &mut Sha256, payload: &FingerprintPayload) {
                 }
             }
         }
-        FingerprintPayload::Dir { mtime_nanos } => {
+        FingerprintPayload::Dir => {
             hasher.update(b"dir");
-            hashing::hash_u64_field(hasher, *mtime_nanos);
         }
         FingerprintPayload::Symlink { symlink_target } => {
             hasher.update(b"symlink");

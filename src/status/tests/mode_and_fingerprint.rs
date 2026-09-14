@@ -493,6 +493,79 @@ fn test_status_errors_on_pre_epoch_mtime() {
     );
 }
 
+/// Directory mtimes are never persisted, so the pre-epoch/overflow rejection
+/// that guards the TOML `mtime_nanos` field must not apply to them. This pins
+/// both halves of a former inconsistency: an untracked (Added) directory used
+/// to abort because its mtime was hashed into the fingerprint, while the same
+/// directory once tracked passed silently. Neither state may error, and the
+/// tracked-vs-untracked outcome must not depend on the directory's mtime.
+#[test]
+fn test_pre_epoch_directory_mtime_is_not_an_error() {
+    use filetime::{FileTime, set_file_mtime};
+
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join("old_dir")).unwrap();
+    set_file_mtime(root.join("old_dir"), FileTime::from_unix_time(-1, 0)).unwrap();
+
+    let run = |root: &Path| {
+        compute_status(
+            root,
+            ChecksumPolicy::Never,
+            StatusMode::Interesting,
+            StatusPurpose::Display,
+            DiffMode::None,
+        )
+        .expect("a pre-epoch directory mtime must not be an error")
+    };
+
+    // Untracked: the directory is Added and produces a fingerprint record.
+    create_ward_file(root, BTreeMap::new());
+    let added = run(root);
+    assert_eq!(added.statuses.len(), 1);
+    assert!(matches!(added.statuses[0], StatusEntry::Added { ref path, .. } if path == "old_dir"));
+
+    // Tracked: the directory is Unchanged and produces no record.
+    let mut entries = BTreeMap::new();
+    entries.insert("old_dir".to_string(), WardEntry::Dir {});
+    create_ward_file(root, entries);
+    let tracked = run(root);
+    assert!(tracked.statuses.is_empty());
+}
+
+/// An added directory's fingerprint must depend only on its path and status,
+/// never on its mtime. Otherwise a child created and deleted inside a new
+/// directory between `status` and `update --fingerprint` would spuriously
+/// invalidate a fingerprint even though the reviewed state is unchanged.
+#[test]
+fn test_fingerprint_ignores_added_directory_mtime() {
+    use filetime::{FileTime, set_file_mtime};
+
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    create_ward_file(root, BTreeMap::new());
+    fs::create_dir(root.join("new_dir")).unwrap();
+
+    let fingerprint = |root: &Path| {
+        compute_status(
+            root,
+            ChecksumPolicy::Never,
+            StatusMode::Interesting,
+            StatusPurpose::Display,
+            DiffMode::None,
+        )
+        .unwrap()
+        .fingerprint
+    };
+
+    set_file_mtime(root.join("new_dir"), FileTime::from_unix_time(1_000_000, 0)).unwrap();
+    let first = fingerprint(root);
+    set_file_mtime(root.join("new_dir"), FileTime::from_unix_time(2_000_000, 0)).unwrap();
+    let second = fingerprint(root);
+
+    assert_eq!(first, second);
+}
+
 /// WARNING: This test verifies that non-UTF-8 paths are rejected rather than
 /// silently converted. Do not change this behavior without extreme care!
 ///

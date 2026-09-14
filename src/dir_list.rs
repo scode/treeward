@@ -1,7 +1,8 @@
 //! Non-recursive directory listing for the treeward checksumming tool.
 //!
 //! This module provides functionality to list the immediate children of a directory,
-//! collecting filesystem metadata (mtime, size, symlink targets) for each entry.
+//! collecting the metadata treeward tracks for each entry: mtime and size for
+//! regular files, the target for symlinks, and bare presence for directories.
 //! The listing is non-recursive - each directory has its own `.treeward` file
 //! containing only its immediate children, allowing directories to be moved
 //! independently while maintaining their integrity information.
@@ -48,9 +49,25 @@ pub enum DirListError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FsEntry {
-    File { mtime: SystemTime, size: u64 },
-    Dir { mtime: SystemTime },
-    Symlink { symlink_target: PathBuf },
+    File {
+        mtime: SystemTime,
+        size: u64,
+    },
+    /// A directory is a bare presence marker, deliberately carrying no mtime.
+    ///
+    /// The non-recursive model never persists anything about a directory
+    /// beyond its existence, and its children are compared individually, so a
+    /// directory mtime would add nothing to change detection or fingerprints.
+    /// It used to be carried and hashed into the fingerprint for added
+    /// directories, which routed directory mtimes through the fatal
+    /// pre-epoch/overflow timestamp check that exists only for the persisted
+    /// `mtime_nanos` field of regular files — an abort for a value the tool
+    /// never stores, and one that depended on whether the directory was
+    /// already tracked.
+    Dir,
+    Symlink {
+        symlink_target: PathBuf,
+    },
 }
 
 pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListError> {
@@ -99,8 +116,7 @@ pub fn list_directory(root: &Path) -> Result<BTreeMap<String, FsEntry>, DirListE
             }
             FsEntry::Symlink { symlink_target }
         } else if file_type.is_dir() {
-            let mtime = metadata.modified().map_err(DirListError::Io)?;
-            FsEntry::Dir { mtime }
+            FsEntry::Dir
         } else if file_type.is_file() {
             let mtime = metadata.modified().map_err(DirListError::Io)?;
             let size = metadata.len();
@@ -149,7 +165,7 @@ mod tests {
         assert_eq!(entries.len(), 3);
 
         assert!(entries.contains_key("dir1"));
-        assert!(matches!(entries.get("dir1").unwrap(), FsEntry::Dir { .. }));
+        assert!(matches!(entries.get("dir1").unwrap(), FsEntry::Dir));
 
         assert!(entries.contains_key("file1.txt"));
         assert!(matches!(
@@ -274,17 +290,17 @@ mod tests {
         let entries = list_directory(root).unwrap();
         assert_eq!(entries.len(), 1);
         assert!(entries.contains_key("dir1"));
-        assert!(matches!(entries.get("dir1").unwrap(), FsEntry::Dir { .. }));
+        assert!(matches!(entries.get("dir1").unwrap(), FsEntry::Dir));
 
         let entries = list_directory(&root.join("dir1")).unwrap();
         assert_eq!(entries.len(), 1);
         assert!(entries.contains_key("dir2"));
-        assert!(matches!(entries.get("dir2").unwrap(), FsEntry::Dir { .. }));
+        assert!(matches!(entries.get("dir2").unwrap(), FsEntry::Dir));
 
         let entries = list_directory(&root.join("dir1/dir2")).unwrap();
         assert_eq!(entries.len(), 1);
         assert!(entries.contains_key("dir3"));
-        assert!(matches!(entries.get("dir3").unwrap(), FsEntry::Dir { .. }));
+        assert!(matches!(entries.get("dir3").unwrap(), FsEntry::Dir));
 
         let entries = list_directory(&root.join("dir1/dir2/dir3")).unwrap();
         assert_eq!(entries.len(), 1);
@@ -420,7 +436,7 @@ mod tests {
 
         assert!(entries.contains_key("restricted"));
         let restricted_entry = entries.get("restricted").unwrap();
-        assert!(matches!(restricted_entry, FsEntry::Dir { .. }));
+        assert!(matches!(restricted_entry, FsEntry::Dir));
     }
 
     #[test]
@@ -474,10 +490,7 @@ mod tests {
 
         assert_eq!(entries.len(), 1);
         assert!(entries.contains_key("testdir"));
-        assert!(matches!(
-            entries.get("testdir").unwrap(),
-            FsEntry::Dir { .. }
-        ));
+        assert!(matches!(entries.get("testdir").unwrap(), FsEntry::Dir));
     }
 
     #[test]
