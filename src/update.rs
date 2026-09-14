@@ -29,6 +29,16 @@ pub enum WardError {
     NotInitialized,
     #[error("Already initialized (use treeward update instead)")]
     AlreadyInitialized,
+    /// Something other than a regular file sits at the root `.treeward` path.
+    ///
+    /// Covers directories and symlinks (looping, dangling, or resolving).
+    /// Refusing is the only safe answer: `init` must not replace whatever the
+    /// user put there, and `update` must not follow a link to some other file
+    /// or, via its atomic rename, quietly turn the link into a regular file.
+    #[error(
+        "root .treeward at {0} is not a regular file (directory or symlink); refusing to read or replace it"
+    )]
+    RootWardNotRegularFile(PathBuf),
     #[error(
         "Fingerprint mismatch: expected {expected}, got {actual}. Ensure --verify/--always-verify flags match between status and init/update commands."
     )]
@@ -83,6 +93,33 @@ fn order_deepest_first(pending: &mut [(PathBuf, &WardFile)]) {
     });
 }
 
+/// Reports whether a regular ward file occupies the root `.treeward` path,
+/// refusing to proceed if anything else does.
+///
+/// `Path::exists()` was the wrong tool for the initialized/uninitialized
+/// guards because it follows symlinks and answers `false` for *any* stat
+/// failure. A `.treeward` symlink caught in a loop was diagnosed as "Not
+/// initialized" and the user sent to `init`, which then failed with the raw
+/// ELOOP error; a dangling `.treeward` symlink let `update` silently replace
+/// the link with a regular file. Neither command should be guessing about a
+/// ward path that is not a plain file, so anything else there (a directory,
+/// or a symlink whether or not it resolves) is a fatal error naming the path.
+/// The only outcomes are: regular file present, nothing present, or an error.
+///
+/// Inspecting with `symlink_metadata` means the link itself is judged, never
+/// its target; treeward never follows symlinks, and a ward file reached
+/// through one would be replaced rather than updated by the atomic rename in
+/// `save` anyway. Only `NotFound` means absent; any other inspection failure
+/// propagates as the I/O error it is instead of being read as a verdict.
+fn root_ward_present(ward_path: &Path) -> Result<bool, WardError> {
+    match std::fs::symlink_metadata(ward_path) {
+        Ok(md) if md.is_file() => Ok(true),
+        Ok(_) => Err(WardError::RootWardNotRegularFile(ward_path.to_path_buf())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(WardError::DirList(DirListError::Io(e))),
+    }
+}
+
 pub struct WardOptions {
     pub init: bool,
     pub allow_init: bool,
@@ -127,6 +164,10 @@ pub struct WardResult {
 /// - With `init` (and not `allow_init`), an existing root `.treeward` is an
 ///   `AlreadyInitialized` error - `init` asserts first-time use
 /// - `allow_init` bypasses both checks, accepting either state
+/// - Anything other than a regular file at the root `.treeward` path (a
+///   directory, or a symlink whether or not it resolves) is a
+///   `RootWardNotRegularFile` error regardless of these flags; see
+///   `root_ward_present`
 /// - These checks only apply to the root directory - subdirectories always
 ///   have `.treeward` files created as needed
 ///
@@ -163,11 +204,12 @@ pub fn ward_directory(root: &Path, options: WardOptions) -> Result<WardResult, W
 
     let ward_path = root.join(".treeward");
 
-    if !options.init && !options.allow_init && !ward_path.exists() {
+    let ward_present = root_ward_present(&ward_path)?;
+    if !options.init && !options.allow_init && !ward_present {
         return Err(WardError::NotInitialized);
     }
 
-    if options.init && !options.allow_init && ward_path.exists() {
+    if options.init && !options.allow_init && ward_present {
         return Err(WardError::AlreadyInitialized);
     }
 
@@ -364,6 +406,70 @@ mod tests {
         match result {
             Err(WardError::NotInitialized) => {}
             _ => panic!("Expected NotInitialized error"),
+        }
+    }
+
+    /// Anything other than a regular file at the root `.treeward` path must be
+    /// a fatal error for both `init` and `update`, never a guard verdict and
+    /// never something the commands write through or over. Before this was
+    /// pinned, `Path::exists()` made a looping symlink read as "no ward file"
+    /// (so `update` said "Not initialized" and `init` died with a raw ELOOP),
+    /// and a dangling symlink let `update` silently replace the link with a
+    /// regular file. Each case checks that the offending entry is untouched
+    /// afterwards.
+    #[test]
+    #[cfg(unix)]
+    fn test_non_regular_file_at_root_ward_path_is_refused() {
+        type Setup<'a> = &'a dyn Fn(&Path);
+        let cases: [(&str, Setup); 3] = [
+            ("looping symlink", &|root| {
+                unix::fs::symlink("loop", root.join(".treeward")).unwrap();
+                unix::fs::symlink(".treeward", root.join("loop")).unwrap();
+            }),
+            ("dangling symlink", &|root| {
+                unix::fs::symlink("nowhere", root.join(".treeward")).unwrap();
+            }),
+            ("directory", &|root| {
+                fs::create_dir(root.join(".treeward")).unwrap();
+            }),
+        ];
+
+        for (label, setup) in cases {
+            let temp = TempDir::new().unwrap();
+            let root = temp.path();
+            fs::write(root.join("file1.txt"), "content1").unwrap();
+            setup(root);
+            let before = fs::symlink_metadata(root.join(".treeward")).unwrap();
+
+            for (init, allow_init) in [(false, false), (true, false), (false, true)] {
+                let result = ward_directory(
+                    root,
+                    WardOptions {
+                        init,
+                        allow_init,
+                        fingerprint: None,
+                        dry_run: false,
+                        checksum_policy: ChecksumPolicy::Never,
+                    },
+                );
+                match result {
+                    Err(WardError::RootWardNotRegularFile(p)) => {
+                        assert_eq!(p, root.canonicalize().unwrap().join(".treeward"))
+                    }
+                    other => panic!(
+                        "{label}, init={init}, allow_init={allow_init}: expected \
+                         RootWardNotRegularFile, got {:?}",
+                        other
+                    ),
+                }
+            }
+
+            let after = fs::symlink_metadata(root.join(".treeward")).unwrap();
+            assert_eq!(
+                before.file_type(),
+                after.file_type(),
+                "{label}: entry was replaced"
+            );
         }
     }
 

@@ -576,3 +576,31 @@ fn update_partial_failure_invalidates_prior_fingerprint() {
         .success();
     treeward_cmd(temp.path()).arg("status").assert().code(0);
 }
+
+/// A root `.treeward` that is a symlink must be refused with a message naming
+/// the path, for `update` and `init` alike, and the link must be left alone.
+/// `update` used to say "Not initialized" for a looping link (sending the user
+/// to `init`, which died with a raw ELOOP), and used to silently replace a
+/// dangling link with a regular file.
+#[test]
+#[cfg(unix)]
+fn update_and_init_refuse_symlink_at_root_ward_path() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("file.txt"), "hello").unwrap();
+    std::os::unix::fs::symlink("nowhere", temp.path().join(".treeward")).unwrap();
+
+    for cmd in ["update", "init"] {
+        treeward_cmd(temp.path())
+            .arg(cmd)
+            .assert()
+            .code(255)
+            .stderr(predicate::str::contains("Not initialized").not())
+            .stderr(predicate::str::contains("is not a regular file"))
+            .stderr(predicate::str::contains(".treeward"));
+    }
+    assert!(
+        fs::symlink_metadata(temp.path().join(".treeward"))
+            .unwrap()
+            .is_symlink()
+    );
+}

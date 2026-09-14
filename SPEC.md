@@ -48,6 +48,11 @@ Absence of an entry means the behavior is not yet specified, not that it is unsp
   not support directory fsync (some FUSE and network mounts), and on non-Unix platforms, the rename flush is skipped and
   durability of the rename is best-effort.
 
+- `update` reports "Not initialized" only when nothing at all exists at the root `.treeward` path, and `init` reports
+  "Already initialized" only when a regular file does. If anything else occupies that path (a directory, or a symlink
+  whether or not it resolves), `init` and `update` (including `--allow-init`) abort with a fatal error naming the path
+  and leave the entry untouched: they never follow it, read through it, or replace it.
+
 - `init`/`update` write ward files one directory at a time and are not atomic as a set. If a write fails partway, the
   command exits with a fatal error stating how many of the changed ward files were written, and the tree is left
   partially updated. In that state no written `.treeward` lists a subdirectory whose own `.treeward` is missing or
