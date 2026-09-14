@@ -208,9 +208,12 @@ Fingerprints prevent time-of-check-time-of-use (TOCTOU) race conditions:
   2. Review the changes shown by status
   3. Run 'treeward update --fingerprint <FINGERPRINT>' to apply those exact changes
 
-If any files change between the status check and update, the fingerprint won't match
-and the update will fail without writing any ward files. This ensures you're updating
-exactly what you reviewed.
+If anything the checksum policy observes changes between the status check and update,
+the fingerprint won't match and the update will fail without writing any ward files.
+By default that is each changed entry's path, type, mtime and size; content is not
+read, so an edit that preserves both mtime and size is not caught. Pass --verify or
+--always-verify to both 'status' and 'update' to bind content as well. The flags must
+match on both commands, or the fingerprints are computed differently and never agree.
 
 Example workflow:
   $ treeward status > review.txt
@@ -302,8 +305,10 @@ Like 'update', init supports fingerprint validation to prevent TOCTOU issues:
   2. Review the output
   3. Run 'treeward init --fingerprint <FINGERPRINT>' to initialize with exactly that state
 
-If files change between status and init, the fingerprint won't match and initialization
-will fail without writing any ward files.
+If anything the checksum policy observes changes between status and init, the
+fingerprint won't match and initialization will fail without writing any ward files.
+As with 'update', the default policy binds mtime and size but not content; use the
+same --verify/--always-verify flags on both commands to bind content too.
 
 Note: On uninitialized directories, 'treeward status' shows all files as 'Added'.
 
@@ -462,8 +467,11 @@ applying exactly the changes you reviewed:
   $ FP=$(grep '^Fingerprint:' review.txt | cut -d' ' -f2)
   $ treeward update --fingerprint $FP
 
-If any files change between status and init/update, the fingerprint won't match and
-the operation will fail. This prevents time-of-check-time-of-use (TOCTOU) issues.
+If anything the checksum policy observes changes between status and init/update, the
+fingerprint won't match and the operation will fail. This prevents
+time-of-check-time-of-use (TOCTOU) issues for what the policy observes: by default
+path, type, mtime and size, not content. An edit that preserves mtime and size passes
+unless --verify or --always-verify was given to both commands (the flags must match).
 
 UNINITIALIZED DIRECTORIES:
 

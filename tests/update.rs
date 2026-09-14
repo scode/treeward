@@ -604,3 +604,20 @@ fn update_and_init_refuse_symlink_at_root_ward_path() {
             .is_symlink()
     );
 }
+
+/// The fingerprint help used to promise that "any" intervening change would
+/// be caught, which the default metadata-only policy cannot deliver. Pin the
+/// qualification so the promise cannot quietly return.
+#[test]
+fn update_help_qualifies_fingerprint_guarantee() {
+    let temp = TempDir::new().unwrap();
+    treeward_cmd(temp.path())
+        .args(["update", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "preserves both mtime and size is not caught",
+        ))
+        .stdout(predicate::str::contains("flags must").and(predicate::str::contains("match")))
+        .stdout(predicate::str::contains("If any files change").not());
+}
