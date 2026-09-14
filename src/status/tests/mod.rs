@@ -11,6 +11,7 @@ fn create_ward_file(dir: &Path, entries: BTreeMap<String, WardEntry>) {
 }
 
 mod basic;
+mod list_to_read_race;
 mod mode_and_fingerprint;
 mod policy;
 #[path = "unix.rs"]
