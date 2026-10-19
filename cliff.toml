@@ -79,3 +79,12 @@ topo_order = false
 # Order of commits in each group/release within the changelog.
 # Allowed values: newest, oldest
 sort_commits = "oldest"
+
+# Pin the GitHub remote used for the compare links in the footer. During the
+# 0.3.3 release git-cliff failed to detect the remote and rendered links as
+# https://github.com///compare/... The likely cause is that the checkout was a
+# jj colocated one, whose detached git HEAD has no upstream branch to infer the
+# remote from. Pinning removes the dependency on checkout shape either way.
+[remote.github]
+owner = "scode"
+repo = "treeward"
