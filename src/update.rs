@@ -556,7 +556,8 @@ mod tests {
     /// 3. update checksums it, finds it unchanged, computes different fingerprint
     #[test]
     fn test_fingerprint_validation_with_metadata_only_change() {
-        use filetime::{FileTime, set_file_mtime};
+        use std::fs::FileTimes;
+        use std::time::{Duration, UNIX_EPOCH};
 
         let temp = TempDir::new().unwrap();
         let root = temp.path();
@@ -575,9 +576,9 @@ mod tests {
 
         // Touch file1.txt to change mtime without changing content.
         // This simulates .DS_Store files that macOS updates frequently.
-        set_file_mtime(
+        fs::set_times(
             root.join("file1.txt"),
-            FileTime::from_unix_time(1000000000, 0),
+            FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(1_000_000_000)),
         )
         .unwrap();
 

@@ -1,8 +1,7 @@
 mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
-use common::{status_fingerprint, status_output, treeward_cmd};
-use filetime::{FileTime, set_file_mtime};
+use common::{set_mtime, status_fingerprint, status_output, treeward_cmd, unix_time};
 use predicates::prelude::*;
 use std::fs;
 #[cfg(unix)]
@@ -168,7 +167,7 @@ fn update_default_matches_status_default_fingerprint_metadata_only() {
     treeward_cmd(temp.path()).arg("init").assert().success();
 
     // Touch file to change mtime without changing content
-    set_file_mtime(&file_path, FileTime::from_unix_time(1000000000, 0)).unwrap();
+    set_mtime(&file_path, unix_time(1000000000));
 
     // Get fingerprint with default (no --verify) - shows M?
     let (status_output, fingerprint) = status_fingerprint(temp.path(), &[]);
@@ -227,7 +226,7 @@ fn update_fingerprint_rejects_second_edit_of_already_modified_file() {
 
     // First edit: status should report M? and produce fingerprint.
     fs::write(&file_path, "bbbbb").unwrap();
-    set_file_mtime(&file_path, FileTime::from_unix_time(1_000_000_000, 0)).unwrap();
+    set_mtime(&file_path, unix_time(1_000_000_000));
 
     let (status_output, fingerprint) = status_fingerprint(temp.path(), &[]);
     assert!(
@@ -243,7 +242,7 @@ fn update_fingerprint_rejects_second_edit_of_already_modified_file() {
     );
     // Second edit before update: same path/status class but different file state.
     fs::write(&file_path, "ccccc").unwrap();
-    set_file_mtime(&file_path, FileTime::from_unix_time(1_000_000_001, 0)).unwrap();
+    set_mtime(&file_path, unix_time(1_000_000_001));
 
     treeward_cmd(temp.path())
         .arg("update")
@@ -271,12 +270,12 @@ fn update_rejects_second_edit_of_added_file_with_preserved_metadata(verify_args:
 
     let file_path = temp.path().join("added.txt");
     fs::write(&file_path, "aaaaa").unwrap();
-    set_file_mtime(&file_path, FileTime::from_unix_time(1_000_000_000, 0)).unwrap();
+    set_mtime(&file_path, unix_time(1_000_000_000));
 
     let (_, fingerprint) = status_fingerprint(temp.path(), verify_args);
 
     fs::write(&file_path, "bbbbb").unwrap();
-    set_file_mtime(&file_path, FileTime::from_unix_time(1_000_000_000, 0)).unwrap();
+    set_mtime(&file_path, unix_time(1_000_000_000));
 
     treeward_cmd(temp.path())
         .arg("update")
@@ -307,12 +306,12 @@ fn update_rejects_second_edit_of_type_changed_file_with_preserved_metadata(verif
 
     fs::remove_dir_all(&changed_path).unwrap();
     fs::write(&changed_path, "aaaaa").unwrap();
-    set_file_mtime(&changed_path, FileTime::from_unix_time(1_000_000_000, 0)).unwrap();
+    set_mtime(&changed_path, unix_time(1_000_000_000));
 
     let (_, fingerprint) = status_fingerprint(temp.path(), verify_args);
 
     fs::write(&changed_path, "bbbbb").unwrap();
-    set_file_mtime(&changed_path, FileTime::from_unix_time(1_000_000_000, 0)).unwrap();
+    set_mtime(&changed_path, unix_time(1_000_000_000));
 
     treeward_cmd(temp.path())
         .arg("update")
@@ -335,7 +334,7 @@ fn update_fingerprint_mismatch_shows_hint() {
     treeward_cmd(temp.path()).arg("init").assert().success();
 
     // Touch file to change mtime without changing content
-    set_file_mtime(&file_path, FileTime::from_unix_time(1000000000, 0)).unwrap();
+    set_mtime(&file_path, unix_time(1000000000));
 
     // Get fingerprint with --verify (finds file unchanged, no M entry)
     let verify_output = status_output(temp.path(), &["--verify"]);

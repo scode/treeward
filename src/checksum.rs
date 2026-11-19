@@ -349,11 +349,11 @@ mod tests {
         // refactoring checksum_file to accept an injected reader or hook, which adds
         // complexity to production code for test-only benefit. In practice, with a 5MB
         // file and 100 attempts, failure is extremely unlikely.
-        use filetime::{FileTime, set_file_mtime};
+        use std::fs::FileTimes;
         use std::sync::Arc;
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::thread;
-        use std::time::Duration;
+        use std::time::{Duration, UNIX_EPOCH};
 
         let mut temp_file = NamedTempFile::new().unwrap();
         let content = vec![b'X'; 5 * 1024 * 1024];
@@ -368,8 +368,8 @@ mod tests {
             let mut counter = 0u64;
             while !stop_flag_clone.load(Ordering::Relaxed) {
                 counter = counter.wrapping_add(1);
-                let mtime = FileTime::from_unix_time(1_000_000_000 + (counter as i64), 0);
-                let _ = set_file_mtime(&path, mtime);
+                let mtime = UNIX_EPOCH + Duration::from_secs(1_000_000_000 + counter);
+                let _ = std::fs::set_times(&path, FileTimes::new().set_modified(mtime));
             }
         });
 

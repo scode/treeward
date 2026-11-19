@@ -1,8 +1,7 @@
 mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
-use common::treeward_cmd;
-use filetime::{FileTime, set_file_mtime};
+use common::{set_mtime, treeward_cmd};
 use predicates::prelude::*;
 use std::fs;
 use tempfile::TempDir;
@@ -69,10 +68,9 @@ fn verify_detects_content_change_with_unchanged_metadata() {
 
     treeward_cmd(temp.path()).arg("init").assert().success();
 
-    let original_mtime =
-        FileTime::from_system_time(fs::metadata(&file_path).unwrap().modified().unwrap());
+    let original_mtime = fs::metadata(&file_path).unwrap().modified().unwrap();
     fs::write(&file_path, "olleh").unwrap();
-    set_file_mtime(&file_path, original_mtime).unwrap();
+    set_mtime(&file_path, original_mtime);
 
     // Sanity-check the premise: metadata-only status must see a clean tree,
     // otherwise this test is not exercising the checksum path at all.

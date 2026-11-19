@@ -468,14 +468,15 @@ fn test_mtime_to_nanos_rejects_toml_integer_overflow() {
 /// `compute_status` rather than being silently skipped or misreported.
 #[test]
 fn test_status_errors_on_pre_epoch_mtime() {
-    use filetime::{FileTime, set_file_mtime};
-
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
     create_ward_file(root, BTreeMap::new());
     fs::write(root.join("old.txt"), "content").unwrap();
-    set_file_mtime(root.join("old.txt"), FileTime::from_unix_time(-1, 0)).unwrap();
+    set_mtime(
+        root.join("old.txt"),
+        UNIX_EPOCH - std::time::Duration::from_secs(1),
+    );
 
     let err = compute_status(
         root,
@@ -501,12 +502,13 @@ fn test_status_errors_on_pre_epoch_mtime() {
 /// tracked-vs-untracked outcome must not depend on the directory's mtime.
 #[test]
 fn test_pre_epoch_directory_mtime_is_not_an_error() {
-    use filetime::{FileTime, set_file_mtime};
-
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     fs::create_dir(root.join("old_dir")).unwrap();
-    set_file_mtime(root.join("old_dir"), FileTime::from_unix_time(-1, 0)).unwrap();
+    set_mtime(
+        root.join("old_dir"),
+        UNIX_EPOCH - std::time::Duration::from_secs(1),
+    );
 
     let run = |root: &Path| {
         compute_status(
@@ -539,8 +541,6 @@ fn test_pre_epoch_directory_mtime_is_not_an_error() {
 /// invalidate a fingerprint even though the reviewed state is unchanged.
 #[test]
 fn test_fingerprint_ignores_added_directory_mtime() {
-    use filetime::{FileTime, set_file_mtime};
-
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     create_ward_file(root, BTreeMap::new());
@@ -558,9 +558,15 @@ fn test_fingerprint_ignores_added_directory_mtime() {
         .fingerprint
     };
 
-    set_file_mtime(root.join("new_dir"), FileTime::from_unix_time(1_000_000, 0)).unwrap();
+    set_mtime(
+        root.join("new_dir"),
+        UNIX_EPOCH + std::time::Duration::from_secs(1_000_000),
+    );
     let first = fingerprint(root);
-    set_file_mtime(root.join("new_dir"), FileTime::from_unix_time(2_000_000, 0)).unwrap();
+    set_mtime(
+        root.join("new_dir"),
+        UNIX_EPOCH + std::time::Duration::from_secs(2_000_000),
+    );
     let second = fingerprint(root);
 
     assert_eq!(first, second);

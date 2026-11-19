@@ -1,8 +1,7 @@
 mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
-use common::{status_output, treeward_cmd};
-use filetime::{FileTime, set_file_mtime};
+use common::{set_mtime, status_output, treeward_cmd, unix_time};
 use predicates::prelude::*;
 use std::fs;
 #[cfg(unix)]
@@ -168,10 +167,9 @@ fn status_always_verify_detects_content_change_with_unchanged_metadata() {
 
     treeward_cmd(temp.path()).arg("init").assert().success();
 
-    let original_mtime =
-        FileTime::from_system_time(fs::metadata(&file_path).unwrap().modified().unwrap());
+    let original_mtime = fs::metadata(&file_path).unwrap().modified().unwrap();
     fs::write(&file_path, "olleh").unwrap();
-    set_file_mtime(&file_path, original_mtime).unwrap();
+    set_mtime(&file_path, original_mtime);
 
     // Both weaker policies must see a clean tree; this is what makes the
     // --always-verify assertion below meaningful.
@@ -607,7 +605,7 @@ fn status_accepts_pre_epoch_directory_mtime() {
     let temp = TempDir::new().unwrap();
     let dir = temp.path().join("old_dir");
     fs::create_dir(&dir).unwrap();
-    set_file_mtime(&dir, FileTime::from_unix_time(-1, 0)).unwrap();
+    set_mtime(&dir, unix_time(-1));
 
     // Untracked: reported as added, exit 1 (changes found).
     treeward_cmd(temp.path())
@@ -619,9 +617,9 @@ fn status_accepts_pre_epoch_directory_mtime() {
     // Tracked: init must also succeed, and status is then clean. Writing
     // old_dir/.treeward bumps the directory's mtime, so re-set it before the
     // final status to make sure the tracked path really sees a pre-epoch value.
-    set_file_mtime(&dir, FileTime::from_unix_time(-1, 0)).unwrap();
+    set_mtime(&dir, unix_time(-1));
     treeward_cmd(temp.path()).arg("init").assert().success();
-    set_file_mtime(&dir, FileTime::from_unix_time(-1, 0)).unwrap();
+    set_mtime(&dir, unix_time(-1));
     treeward_cmd(temp.path()).arg("status").assert().code(0);
 }
 
