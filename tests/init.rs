@@ -1,8 +1,7 @@
 mod common;
 
 use assert_cmd::cargo::cargo_bin_cmd;
-use common::{status_fingerprint, treeward_cmd};
-use filetime::{FileTime, set_file_mtime};
+use common::{set_mtime, status_fingerprint, treeward_cmd};
 use predicates::prelude::*;
 use std::fs;
 #[cfg(unix)]
@@ -285,10 +284,9 @@ fn make_partially_warded_tree_with_hidden_subdir_change(temp: &TempDir) {
 
     treeward_cmd(&subdir).arg("init").assert().success();
 
-    let original_mtime =
-        FileTime::from_system_time(fs::metadata(&file_path).unwrap().modified().unwrap());
+    let original_mtime = fs::metadata(&file_path).unwrap().modified().unwrap();
     fs::write(&file_path, "olleh").unwrap();
-    set_file_mtime(&file_path, original_mtime).unwrap();
+    set_mtime(&file_path, original_mtime);
 }
 
 fn assert_file_checksum(ward_path: &std::path::Path, entry_name: &str, expected_sha256: &str) {

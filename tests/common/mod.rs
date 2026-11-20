@@ -1,6 +1,8 @@
 use assert_cmd::{Command, cargo::cargo_bin_cmd};
+use std::fs::{self, FileTimes};
 use std::path::Path;
 use std::process::Output;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub fn treeward_cmd(cwd: &Path) -> Command {
     let mut cmd = cargo_bin_cmd!("treeward");
@@ -24,6 +26,32 @@ pub fn extract_fingerprint(stdout: &[u8]) -> String {
         .find_map(|line| line.strip_prefix("Fingerprint: "))
         .expect("fingerprint not found in output")
         .to_string()
+}
+
+/// Sets the mtime of `path` and leaves its atime alone, panicking on failure.
+///
+/// Tests use this to fake metadata-only changes (a touched file whose content is unchanged) and
+/// to put back the original mtime after rewriting content, so that only a checksum can tell the
+/// difference. It follows symlinks, like `touch` does; none of the callers point it at a symlink.
+#[allow(dead_code)]
+pub fn set_mtime(path: impl AsRef<Path>, mtime: SystemTime) {
+    let path = path.as_ref();
+    fs::set_times(path, FileTimes::new().set_modified(mtime))
+        .unwrap_or_else(|e| panic!("failed to set mtime of {}: {e}", path.display()));
+}
+
+/// Returns the instant `secs` seconds after the UNIX epoch, or before it when `secs` is negative.
+///
+/// Negative values matter: treeward refuses to persist pre-epoch file mtimes, and tests need to
+/// create such files and directories on purpose.
+#[allow(dead_code)]
+pub fn unix_time(secs: i64) -> SystemTime {
+    let offset = Duration::from_secs(secs.unsigned_abs());
+    if secs >= 0 {
+        UNIX_EPOCH + offset
+    } else {
+        UNIX_EPOCH - offset
+    }
 }
 
 // This convenience wrapper is only needed by update-focused integration tests.
